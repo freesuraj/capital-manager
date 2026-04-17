@@ -79,8 +79,6 @@ No email templates need changing. The default confirmation email works out of th
 
 ### 3. Run the schema
 
-The schema creates all 10 tables, enables RLS on each, adds policies, indexes, and `updated_at` triggers.
-
 Migrations live in `supabase/migrations/` using Supabase's standard filename format:
 
 ```
@@ -91,18 +89,42 @@ YYYYMMDDHHmmss_description.sql
 |---|---|
 | `20260417000000_initial_schema.sql` | Creates all tables, RLS policies, indexes, triggers |
 
-**To apply:**
+**Apply with the Supabase CLI (recommended):**
 
-1. In the dashboard open **SQL Editor → New query**.
-2. Paste the entire contents of `supabase/migrations/20260417000000_initial_schema.sql`.
-3. Click **Run** (or `Cmd+Enter`).
-
-**Future schema changes** — create a new file with a timestamp after the last one:
 ```bash
-# Example: adding a new column
-touch supabase/migrations/20260418120000_add_currency_to_goals.sql
+# One-time: link this project to your remote Supabase project
+# Find your project ref in the dashboard URL: supabase.com/dashboard/project/<ref>
+cd app
+supabase link --project-ref <your-project-ref>
+
+# Push all pending migrations
+supabase db push
 ```
-Then run only that new file in SQL Editor — never re-run earlier migrations.
+
+You will be prompted for your database password (the one you set when creating the project).
+
+> `supabase link` stores the project ref in `.supabase/` which is gitignored — you need to re-run it on each machine.
+
+**Alternative — SQL Editor (no CLI):**
+
+1. Open **SQL Editor → New query** in the dashboard.
+2. Paste `supabase/migrations/20260417000000_initial_schema.sql` and click **Run**.
+3. Note: if you apply migrations manually this way, `supabase db push` will still report them as pending because the CLI's migration history table (`supabase_migrations.schema_migrations`) won't have a record. Fix this by running:
+   ```sql
+   insert into supabase_migrations.schema_migrations (version, name, statements)
+   values ('20260417000000', 'initial_schema', array[]::text[]);
+   ```
+
+**Adding future migrations:**
+
+```bash
+# Create a new timestamped file
+touch supabase/migrations/$(date +%Y%m%d%H%M%S)_describe_change.sql
+# Edit the file, then push
+supabase db push
+```
+
+Never re-run earlier migration files — only push new ones.
 
 Verify in **Table Editor** that these tables were created:
 

@@ -42,6 +42,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# supabase local state (stores linked project ref — machine-specific)
+.supabase/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
