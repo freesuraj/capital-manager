@@ -228,7 +228,7 @@ function ThinkingDots() {
 export function AdvisorChat({ financialContext, initialData }: AdvisorChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
-  const [provider, setProvider] = useState<Provider>('claude')
+  const [provider, setProvider] = useState<Provider>('gemini')
   const [isStreaming, setIsStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
