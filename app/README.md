@@ -79,11 +79,30 @@ No email templates need changing. The default confirmation email works out of th
 
 ### 3. Run the schema
 
-The schema creates all 10 tables, enables RLS on each, adds policies, indexes, and `updated_at` triggers. There are **no migrations** — it is a single idempotent SQL file.
+The schema creates all 10 tables, enables RLS on each, adds policies, indexes, and `updated_at` triggers.
+
+Migrations live in `supabase/migrations/` using Supabase's standard filename format:
+
+```
+YYYYMMDDHHmmss_description.sql
+```
+
+| File | What it does |
+|---|---|
+| `20260417000000_initial_schema.sql` | Creates all tables, RLS policies, indexes, triggers |
+
+**To apply:**
 
 1. In the dashboard open **SQL Editor → New query**.
-2. Paste the entire contents of `supabase/schema.sql`.
+2. Paste the entire contents of `supabase/migrations/20260417000000_initial_schema.sql`.
 3. Click **Run** (or `Cmd+Enter`).
+
+**Future schema changes** — create a new file with a timestamp after the last one:
+```bash
+# Example: adding a new column
+touch supabase/migrations/20260418120000_add_currency_to_goals.sql
+```
+Then run only that new file in SQL Editor — never re-run earlier migrations.
 
 Verify in **Table Editor** that these tables were created:
 
@@ -316,4 +335,4 @@ drop table if exists financial_profiles cascade;
 drop function if exists update_updated_at cascade;
 ```
 
-Then re-run `supabase/schema.sql`.
+Then re-run `supabase/migrations/20260417000000_initial_schema.sql`.
