@@ -19,7 +19,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { NetWorthChart } from '@/components/charts/net-worth-chart'
 import { AllocationPie } from '@/components/charts/allocation-pie'
 import { CashFlowBar } from '@/components/charts/cashflow-bar'
-import type { Asset, Liability, IncomeSource, Expense, PortfolioSnapshot, FinancialSummary } from '@/types'
+import type { Asset, Liability, IncomeSource, Expense, PortfolioSnapshot, FinancialSummary, HouseholdMember } from '@/types'
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -203,12 +203,14 @@ export default async function DashboardPage() {
 
   // Parallel data fetching
   const [
+    { data: membersRaw },
     { data: assets },
     { data: liabilities },
     { data: incomeSources },
     { data: expenses },
     { data: snapshots },
   ] = await Promise.all([
+    adminSupabase.from('household_members').select('*').eq('user_id', user!.id).order('created_at', { ascending: true }),
     adminSupabase.from('assets').select('*').eq('user_id', user!.id),
     adminSupabase.from('liabilities').select('*').eq('user_id', user!.id),
     adminSupabase.from('income_sources').select('*').eq('user_id', user!.id),
@@ -220,6 +222,8 @@ export default async function DashboardPage() {
       .order('date', { ascending: true })
       .limit(24),
   ])
+  const members = (membersRaw as HouseholdMember[] | null) ?? []
+  const memberMap = Object.fromEntries(members.map((m) => [m.id, m]))
 
   // Compute summary
   const totalAssets = (assets as Asset[] | null)?.reduce((s, a) => s + a.value, 0) ?? 0

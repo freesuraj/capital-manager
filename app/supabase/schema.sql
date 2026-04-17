@@ -20,12 +20,39 @@ end;
 $$ language plpgsql;
 
 -- =============================================================================
+-- TABLE: household_members
+-- =============================================================================
+
+create table if not exists household_members (
+  id           uuid primary key default gen_random_uuid(),
+  user_id      uuid references auth.users(id) on delete cascade not null,
+  name         text not null,
+  relationship text not null check (relationship in ('self','partner','dependent','other')),
+  color        text not null default '#3b82f6',
+  is_primary   boolean not null default false,
+  created_at   timestamptz default now(),
+  updated_at   timestamptz default now()
+);
+
+alter table household_members enable row level security;
+
+create policy "Users can manage own household_members" on household_members
+  for all using (auth.uid() = user_id);
+
+create index if not exists idx_household_members_user_id on household_members(user_id);
+
+create trigger update_household_members_updated_at
+  before update on household_members
+  for each row execute function update_updated_at();
+
+-- =============================================================================
 -- TABLE: financial_profiles
 -- =============================================================================
 
 create table if not exists financial_profiles (
   id                   uuid primary key default gen_random_uuid(),
-  user_id              uuid references auth.users(id) on delete cascade not null unique,
+  user_id              uuid references auth.users(id) on delete cascade not null,
+  member_id            uuid references household_members(id) on delete cascade,
   age                  int,
   country              text,
   tax_jurisdiction     text,
@@ -49,6 +76,7 @@ create policy "Users can manage own financial_profiles" on financial_profiles
   for all using (auth.uid() = user_id);
 
 create index if not exists idx_financial_profiles_user_id on financial_profiles(user_id);
+create unique index if not exists idx_financial_profiles_member on financial_profiles(member_id) where member_id is not null;
 
 create trigger update_financial_profiles_updated_at
   before update on financial_profiles
@@ -61,6 +89,7 @@ create trigger update_financial_profiles_updated_at
 create table if not exists assets (
   id             uuid primary key default gen_random_uuid(),
   user_id        uuid references auth.users(id) on delete cascade not null,
+  member_id      uuid references household_members(id) on delete set null,
   name           text not null,
   type           text not null check (type in ('cash', 'savings', 'investment', 'real_estate', 'retirement', 'business', 'other')),
   value          numeric(15,2) not null default 0,
@@ -79,6 +108,7 @@ create policy "Users can manage own assets" on assets
 
 create index if not exists idx_assets_user_id on assets(user_id);
 create index if not exists idx_assets_type on assets(user_id, type);
+create index if not exists idx_assets_member on assets(user_id, member_id);
 
 create trigger update_assets_updated_at
   before update on assets
@@ -91,6 +121,7 @@ create trigger update_assets_updated_at
 create table if not exists liabilities (
   id               uuid primary key default gen_random_uuid(),
   user_id          uuid references auth.users(id) on delete cascade not null,
+  member_id        uuid references household_members(id) on delete set null,
   name             text not null,
   type             text not null check (type in ('mortgage', 'car_loan', 'student_loan', 'credit_card', 'personal_loan', 'business_loan', 'other')),
   balance          numeric(15,2) not null default 0,
@@ -112,6 +143,7 @@ create policy "Users can manage own liabilities" on liabilities
 
 create index if not exists idx_liabilities_user_id on liabilities(user_id);
 create index if not exists idx_liabilities_type on liabilities(user_id, type);
+create index if not exists idx_liabilities_member on liabilities(user_id, member_id);
 
 create trigger update_liabilities_updated_at
   before update on liabilities
@@ -124,6 +156,7 @@ create trigger update_liabilities_updated_at
 create table if not exists income_sources (
   id             uuid primary key default gen_random_uuid(),
   user_id        uuid references auth.users(id) on delete cascade not null,
+  member_id      uuid references household_members(id) on delete set null,
   name           text not null,
   type           text not null check (type in ('salary', 'freelance', 'rental', 'dividends', 'business', 'side_hustle', 'other')),
   monthly_amount numeric(15,2) not null default 0,
@@ -141,6 +174,7 @@ create policy "Users can manage own income_sources" on income_sources
 
 create index if not exists idx_income_sources_user_id on income_sources(user_id);
 create index if not exists idx_income_sources_active on income_sources(user_id, is_active);
+create index if not exists idx_income_sources_member on income_sources(user_id, member_id);
 
 create trigger update_income_sources_updated_at
   before update on income_sources
@@ -153,6 +187,7 @@ create trigger update_income_sources_updated_at
 create table if not exists expenses (
   id                 uuid primary key default gen_random_uuid(),
   user_id            uuid references auth.users(id) on delete cascade not null,
+  member_id          uuid references household_members(id) on delete set null,
   name               text not null,
   category           text not null check (category in ('housing', 'transport', 'food', 'utilities', 'insurance', 'healthcare', 'entertainment', 'education', 'savings', 'debt_payment', 'other')),
   amount             numeric(15,2) not null default 0,
@@ -172,6 +207,7 @@ create policy "Users can manage own expenses" on expenses
 create index if not exists idx_expenses_user_id on expenses(user_id);
 create index if not exists idx_expenses_category on expenses(user_id, category);
 create index if not exists idx_expenses_essential on expenses(user_id, is_essential);
+create index if not exists idx_expenses_member on expenses(user_id, member_id);
 
 create trigger update_expenses_updated_at
   before update on expenses

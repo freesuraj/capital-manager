@@ -15,7 +15,7 @@ import { PageHeader } from '@/components/layout/page-header'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { CashflowPie, type PieSlice } from '@/components/charts/cashflow-pie'
-import type { IncomeSource, Expense } from '@/types'
+import type { IncomeSource, Expense, HouseholdMember } from '@/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -239,13 +239,17 @@ export default async function CashFlowPage() {
   } = await supabase.auth.getUser()
   const adminSupabase = createAdminClient()
 
-  const [{ data: incomeRaw }, { data: expensesRaw }] = await Promise.all([
+  const [{ data: membersRaw }, { data: incomeRaw }, { data: expensesRaw }] = await Promise.all([
+    adminSupabase.from('household_members').select('*').eq('user_id', user!.id),
     adminSupabase.from('income_sources').select('*').eq('user_id', user!.id),
     adminSupabase.from('expenses').select('*').eq('user_id', user!.id),
   ])
 
   const incomeSources = (incomeRaw as IncomeSource[] | null) ?? []
   const expenses = (expensesRaw as Expense[] | null) ?? []
+  const memberMap: Record<string, HouseholdMember> = Object.fromEntries(
+    ((membersRaw as HouseholdMember[] | null) ?? []).map((m) => [m.id, m])
+  )
 
   const hasData = incomeSources.length > 0 || expenses.length > 0
 
@@ -379,6 +383,14 @@ export default async function CashFlowPage() {
                         {!source.is_active && (
                           <Badge variant="outline">Inactive</Badge>
                         )}
+                        {source.member_id && memberMap[source.member_id] && (
+                          <span
+                            className="shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium"
+                            style={{ background: `${memberMap[source.member_id].color}20`, color: memberMap[source.member_id].color }}
+                          >
+                            {memberMap[source.member_id].name}
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge variant={incomeTypeVariant(source.type)}>
@@ -458,6 +470,14 @@ export default async function CashFlowPage() {
                         <span className="text-sm font-semibold text-[#e2e8f0] truncate">
                           {expense.name}
                         </span>
+                        {expense.member_id && memberMap[expense.member_id] && (
+                          <span
+                            className="shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium"
+                            style={{ background: `${memberMap[expense.member_id].color}20`, color: memberMap[expense.member_id].color }}
+                          >
+                            {memberMap[expense.member_id].name}
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         <span

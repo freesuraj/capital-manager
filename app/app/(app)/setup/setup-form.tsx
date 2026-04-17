@@ -12,11 +12,14 @@ import type {
   IncomeSource,
   Expense,
   InvestmentHolding,
+  HouseholdMember,
 } from '@/types'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface SetupFormProps {
+  members: HouseholdMember[]
+  profiles: FinancialProfile[]
   profile: FinancialProfile | null
   assets: Asset[]
   liabilities: Liability[]
@@ -25,15 +28,23 @@ interface SetupFormProps {
   holdings: InvestmentHolding[]
 }
 
-type TabId = 'profile' | 'assets' | 'liabilities' | 'income' | 'expenses' | 'investments'
+type TabId = 'members' | 'profile' | 'assets' | 'liabilities' | 'income' | 'expenses' | 'investments'
 
 const TABS: { id: TabId; label: string }[] = [
+  { id: 'members', label: 'Members' },
   { id: 'profile', label: 'Profile' },
   { id: 'assets', label: 'Assets' },
   { id: 'liabilities', label: 'Liabilities' },
   { id: 'income', label: 'Income' },
   { id: 'expenses', label: 'Expenses' },
   { id: 'investments', label: 'Investments' },
+]
+
+const MEMBER_COLORS = [
+  { label: 'Blue', value: '#3b82f6' },
+  { label: 'Purple', value: '#a855f7' },
+  { label: 'Green', value: '#10b981' },
+  { label: 'Amber', value: '#f59e0b' },
 ]
 
 // ─── Toast ───────────────────────────────────────────────────────────────────
@@ -132,31 +143,283 @@ function EmptyList({ label }: { label: string }) {
   )
 }
 
+function MemberBadge({ member }: { member: HouseholdMember | undefined }) {
+  if (!member) return (
+    <span
+      className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+      style={{ background: '#1e2a3a', color: '#64748b' }}
+    >
+      Joint
+    </span>
+  )
+  return (
+    <span
+      className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+      style={{ background: `${member.color}20`, color: member.color }}
+    >
+      {member.name}
+    </span>
+  )
+}
+
+function MemberAssignSelect({
+  members,
+  value,
+  onChange,
+}: {
+  members: HouseholdMember[]
+  value: string
+  onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void
+}) {
+  if (members.length === 0) return null
+  return (
+    <Select label="Assign to" value={value} onChange={onChange}>
+      <option value="">Joint / Household</option>
+      {members.map((m) => (
+        <option key={m.id} value={m.id}>
+          {m.name}
+        </option>
+      ))}
+    </Select>
+  )
+}
+
+// ─── Members Tab ─────────────────────────────────────────────────────────────
+
+function MembersTab({
+  initialMembers,
+  onToast,
+  onMembersChange,
+}: {
+  initialMembers: HouseholdMember[]
+  onToast: (msg: string, type: 'success' | 'error') => void
+  onMembersChange: (members: HouseholdMember[]) => void
+}) {
+  const [members, setMembers] = useState<HouseholdMember[]>(initialMembers)
+  const [adding, startAdd] = useTransition()
+  const [deleting, startDelete] = useTransition()
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  const blankForm = {
+    name: '',
+    relationship: 'self' as HouseholdMember['relationship'],
+    color: '#3b82f6',
+  }
+  const [form, setForm] = useState(blankForm)
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setForm((p) => ({ ...p, [k]: e.target.value }))
+
+  function handleAdd() {
+    if (!form.name.trim()) {
+      onToast('Name is required', 'error')
+      return
+    }
+    startAdd(async () => {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { onToast('Not authenticated', 'error'); return }
+
+      const isPrimary = members.length === 0 && form.relationship === 'self'
+
+      const { data, error } = await supabase
+        .from('household_members')
+        .insert({
+          user_id: user.id,
+          name: form.name.trim(),
+          relationship: form.relationship,
+          color: form.color,
+          is_primary: isPrimary,
+        })
+        .select()
+        .single()
+
+      if (error) { onToast(error.message, 'error'); return }
+      const updated = [...members, data as HouseholdMember]
+      setMembers(updated)
+      onMembersChange(updated)
+      setForm(blankForm)
+      onToast('Member added', 'success')
+    })
+  }
+
+  function handleDelete(id: string) {
+    setDeletingId(id)
+    startDelete(async () => {
+      const supabase = createClient()
+      const { error } = await supabase.from('household_members').delete().eq('id', id)
+      if (error) { onToast(error.message, 'error'); setDeletingId(null); return }
+      const updated = members.filter((m) => m.id !== id)
+      setMembers(updated)
+      onMembersChange(updated)
+      setDeletingId(null)
+      onToast('Member removed', 'success')
+    })
+  }
+
+  const relationshipLabel: Record<string, string> = {
+    self: 'Self',
+    partner: 'Partner',
+    dependent: 'Dependent',
+    other: 'Other',
+  }
+
+  return (
+    <div className="space-y-5">
+      <Card>
+        <CardHeader>
+          <CardTitle>Household Members</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {members.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-sm text-[#64748b] mb-2">No members added yet.</p>
+              <p className="text-xs text-[#475569]">Add yourself to get started — then optionally add your partner or dependents.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {members.map((member) => (
+                <div
+                  key={member.id}
+                  className="flex items-center justify-between px-4 py-3 rounded-xl"
+                  style={{ background: '#0f172a', border: '1px solid #1e2a3a' }}
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-3 h-3 rounded-full shrink-0"
+                      style={{ background: member.color }}
+                    />
+                    <div>
+                      <p className="text-sm font-medium text-[#e2e8f0]">{member.name}</p>
+                      <p className="text-xs text-[#64748b]">{relationshipLabel[member.relationship] ?? member.relationship}</p>
+                    </div>
+                    {member.is_primary && (
+                      <span
+                        className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                        style={{ background: '#3b82f620', color: '#3b82f6' }}
+                      >
+                        Primary
+                      </span>
+                    )}
+                  </div>
+                  <DeleteButton
+                    onClick={() => handleDelete(member.id)}
+                    loading={deleting && deletingId === member.id}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Add Member</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <Input
+              label="Name"
+              placeholder={members.length === 0 ? 'Me' : 'Partner Name'}
+              value={form.name}
+              onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+            />
+            <Select label="Relationship" value={form.relationship} onChange={set('relationship')}>
+              <option value="self">Self</option>
+              <option value="partner">Partner</option>
+              <option value="dependent">Dependent</option>
+              <option value="other">Other</option>
+            </Select>
+            <div>
+              <label className="block text-xs font-medium text-[#94a3b8] mb-1.5">Color</label>
+              <div className="flex items-center gap-2 pt-1">
+                {MEMBER_COLORS.map((c) => (
+                  <button
+                    key={c.value}
+                    type="button"
+                    onClick={() => setForm((p) => ({ ...p, color: c.value }))}
+                    className="w-7 h-7 rounded-full transition-transform hover:scale-110 focus:outline-none"
+                    style={{
+                      background: c.value,
+                      outline: form.color === c.value ? `2px solid ${c.value}` : 'none',
+                      outlineOffset: '2px',
+                    }}
+                    aria-label={c.label}
+                    title={c.label}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="mt-4 flex justify-end">
+            <Button onClick={handleAdd} loading={adding}>
+              Add Member
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
 // ─── Profile Tab ─────────────────────────────────────────────────────────────
 
 function ProfileTab({
+  profiles,
   profile,
+  members,
   onToast,
 }: {
+  profiles: FinancialProfile[]
   profile: FinancialProfile | null
+  members: HouseholdMember[]
   onToast: (msg: string, type: 'success' | 'error') => void
 }) {
+  // Which member we're editing (null = no-member / legacy profile)
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(
+    members.length > 0 ? (members[0]?.id ?? null) : null
+  )
+
+  const activeProfile = profiles.find((p) => p.member_id === selectedMemberId) ?? (selectedMemberId === null ? profile : null)
+
   const [saving, startSave] = useTransition()
   const [form, setForm] = useState({
-    age: profile?.age?.toString() ?? '',
-    country: profile?.country ?? '',
-    tax_jurisdiction: profile?.tax_jurisdiction ?? '',
-    employment_status: profile?.employment_status ?? 'employed',
-    monthly_income: profile?.monthly_income?.toString() ?? '',
-    risk_tolerance: profile?.risk_tolerance ?? 'moderate',
-    investment_experience: profile?.investment_experience ?? 'beginner',
-    time_horizon: profile?.time_horizon ?? '',
-    emergency_fund_target: profile?.emergency_fund_target?.toString() ?? '',
-    dependents: profile?.dependents?.toString() ?? '',
-    insurance_coverage: profile?.insurance_coverage ?? '',
-    goal_priorities: profile?.goal_priorities ?? '',
-    restrictions: profile?.restrictions ?? '',
+    age: activeProfile?.age?.toString() ?? '',
+    country: activeProfile?.country ?? '',
+    tax_jurisdiction: activeProfile?.tax_jurisdiction ?? '',
+    employment_status: activeProfile?.employment_status ?? 'employed',
+    monthly_income: activeProfile?.monthly_income?.toString() ?? '',
+    risk_tolerance: activeProfile?.risk_tolerance ?? 'moderate',
+    investment_experience: activeProfile?.investment_experience ?? 'beginner',
+    time_horizon: activeProfile?.time_horizon ?? '',
+    emergency_fund_target: activeProfile?.emergency_fund_target?.toString() ?? '',
+    dependents: activeProfile?.dependents?.toString() ?? '',
+    insurance_coverage: activeProfile?.insurance_coverage ?? '',
+    goal_priorities: activeProfile?.goal_priorities ?? '',
+    restrictions: activeProfile?.restrictions ?? '',
   })
+
+  // When member selection changes, reload form with that member's profile
+  function handleMemberChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const mid = e.target.value || null
+    setSelectedMemberId(mid)
+    const p = profiles.find((pr) => pr.member_id === mid) ?? (mid === null ? profile : null)
+    setForm({
+      age: p?.age?.toString() ?? '',
+      country: p?.country ?? '',
+      tax_jurisdiction: p?.tax_jurisdiction ?? '',
+      employment_status: p?.employment_status ?? 'employed',
+      monthly_income: p?.monthly_income?.toString() ?? '',
+      risk_tolerance: p?.risk_tolerance ?? 'moderate',
+      investment_experience: p?.investment_experience ?? 'beginner',
+      time_horizon: p?.time_horizon ?? '',
+      emergency_fund_target: p?.emergency_fund_target?.toString() ?? '',
+      dependents: p?.dependents?.toString() ?? '',
+      insurance_coverage: p?.insurance_coverage ?? '',
+      goal_priorities: p?.goal_priorities ?? '',
+      restrictions: p?.restrictions ?? '',
+    })
+  }
 
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm((p) => ({ ...p, [k]: e.target.value }))
@@ -169,6 +432,7 @@ function ProfileTab({
 
       const payload = {
         user_id: user.id,
+        member_id: selectedMemberId ?? null,
         age: form.age ? parseInt(form.age) : null,
         country: form.country || null,
         tax_jurisdiction: form.tax_jurisdiction || null,
@@ -185,19 +449,46 @@ function ProfileTab({
         updated_at: new Date().toISOString(),
       }
 
-      const { error } = await supabase
-        .from('financial_profiles')
-        .upsert(payload, { onConflict: 'user_id' })
+      // Upsert by member_id when set, else by user_id for legacy profile
+      let error
+      if (selectedMemberId) {
+        ;({ error } = await supabase
+          .from('financial_profiles')
+          .upsert(payload, { onConflict: 'member_id' }))
+      } else {
+        ;({ error } = await supabase
+          .from('financial_profiles')
+          .upsert(payload, { onConflict: 'user_id' }))
+      }
 
       if (error) onToast(error.message, 'error')
       else onToast('Profile saved', 'success')
     })
   }
 
+  const selectedMemberName = members.find((m) => m.id === selectedMemberId)?.name ?? 'General'
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Personal Financial Profile</CardTitle>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <CardTitle>Financial Profile</CardTitle>
+          {members.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-[#64748b]">Editing for:</span>
+              <select
+                value={selectedMemberId ?? ''}
+                onChange={handleMemberChange}
+                className="text-sm rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#3b82f6]"
+                style={{ background: '#111827', border: '1px solid #1e2a3a', color: '#e2e8f0' }}
+              >
+                {members.map((m) => (
+                  <option key={m.id} value={m.id}>{m.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -308,7 +599,7 @@ function ProfileTab({
 
         <div className="mt-6 flex justify-end">
           <Button onClick={handleSave} loading={saving}>
-            Save Profile
+            Save Profile{members.length > 0 ? ` for ${selectedMemberName}` : ''}
           </Button>
         </div>
       </CardContent>
@@ -320,9 +611,11 @@ function ProfileTab({
 
 function AssetsTab({
   initialAssets,
+  members,
   onToast,
 }: {
   initialAssets: Asset[]
+  members: HouseholdMember[]
   onToast: (msg: string, type: 'success' | 'error') => void
 }) {
   const [assets, setAssets] = useState<Asset[]>(initialAssets)
@@ -337,6 +630,7 @@ function AssetsTab({
     currency: 'USD',
     institution: '',
     notes: '',
+    member_id: '',
   }
   const [form, setForm] = useState(blankForm)
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
@@ -356,6 +650,7 @@ function AssetsTab({
         .from('assets')
         .insert({
           user_id: user.id,
+          member_id: form.member_id || null,
           name: form.name,
           type: form.type,
           value: parseFloat(form.value),
@@ -385,11 +680,11 @@ function AssetsTab({
     })
   }
 
+  const memberMap = Object.fromEntries(members.map((m) => [m.id, m]))
   const grouped = groupBy(assets, 'type')
 
   return (
     <div className="space-y-5">
-      {/* Existing assets */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -422,7 +717,12 @@ function AssetsTab({
                         style={{ background: '#0f172a', border: '1px solid #1e2a3a' }}
                       >
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-[#e2e8f0] truncate">{asset.name}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium text-[#e2e8f0] truncate">{asset.name}</p>
+                            {members.length > 0 && (
+                              <MemberBadge member={asset.member_id ? memberMap[asset.member_id] : undefined} />
+                            )}
+                          </div>
                           {asset.institution && (
                             <p className="text-xs text-[#64748b]">{asset.institution}</p>
                           )}
@@ -446,7 +746,6 @@ function AssetsTab({
         </CardContent>
       </Card>
 
-      {/* Add form */}
       <Card>
         <CardHeader>
           <CardTitle>Add Asset</CardTitle>
@@ -467,6 +766,7 @@ function AssetsTab({
             <Input label="Currency" placeholder="USD" value={form.currency} onChange={set('currency')} />
             <Input label="Institution" placeholder="Chase Bank" value={form.institution} onChange={set('institution')} />
             <Textarea label="Notes" placeholder="Optional notes..." rows={2} value={form.notes} onChange={set('notes')} />
+            <MemberAssignSelect members={members} value={form.member_id} onChange={set('member_id')} />
           </div>
           <div className="mt-4 flex justify-end">
             <Button onClick={handleAdd} loading={adding}>
@@ -483,9 +783,11 @@ function AssetsTab({
 
 function LiabilitiesTab({
   initialLiabilities,
+  members,
   onToast,
 }: {
   initialLiabilities: Liability[]
+  members: HouseholdMember[]
   onToast: (msg: string, type: 'success' | 'error') => void
 }) {
   const [liabilities, setLiabilities] = useState<Liability[]>(initialLiabilities)
@@ -503,6 +805,7 @@ function LiabilitiesTab({
     term_months: '',
     institution: '',
     notes: '',
+    member_id: '',
   }
   const [form, setForm] = useState(blankForm)
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
@@ -522,6 +825,7 @@ function LiabilitiesTab({
         .from('liabilities')
         .insert({
           user_id: user.id,
+          member_id: form.member_id || null,
           name: form.name,
           type: form.type,
           balance: parseFloat(form.balance),
@@ -554,6 +858,8 @@ function LiabilitiesTab({
     })
   }
 
+  const memberMap = Object.fromEntries(members.map((m) => [m.id, m]))
+
   return (
     <div className="space-y-5">
       <Card>
@@ -585,6 +891,9 @@ function LiabilitiesTab({
                       >
                         {capitalize(liability.type)}
                       </span>
+                      {members.length > 0 && (
+                        <MemberBadge member={liability.member_id ? memberMap[liability.member_id] : undefined} />
+                      )}
                     </div>
                     <div className="flex items-center gap-3 mt-0.5">
                       <p className="text-xs text-[#64748b]">
@@ -636,6 +945,7 @@ function LiabilitiesTab({
             <Input label="Term (months)" type="number" min={0} placeholder="60" value={form.term_months} onChange={set('term_months')} />
             <Input label="Institution" placeholder="Chase Bank" value={form.institution} onChange={set('institution')} />
             <Textarea label="Notes" placeholder="Optional notes..." rows={2} value={form.notes} onChange={set('notes')} />
+            <MemberAssignSelect members={members} value={form.member_id} onChange={set('member_id')} />
           </div>
           <div className="mt-4 flex justify-end">
             <Button onClick={handleAdd} loading={adding}>
@@ -652,9 +962,11 @@ function LiabilitiesTab({
 
 function IncomeTab({
   initialIncome,
+  members,
   onToast,
 }: {
   initialIncome: IncomeSource[]
+  members: HouseholdMember[]
   onToast: (msg: string, type: 'success' | 'error') => void
 }) {
   const [income, setIncome] = useState<IncomeSource[]>(initialIncome)
@@ -668,6 +980,7 @@ function IncomeTab({
     monthly_amount: '',
     is_active: true,
     notes: '',
+    member_id: '',
   }
   const [form, setForm] = useState(blankForm)
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
@@ -687,6 +1000,7 @@ function IncomeTab({
         .from('income_sources')
         .insert({
           user_id: user.id,
+          member_id: form.member_id || null,
           name: form.name,
           type: form.type,
           monthly_amount: parseFloat(form.monthly_amount),
@@ -716,6 +1030,7 @@ function IncomeTab({
   }
 
   const totalActive = income.filter((i) => i.is_active).reduce((s, i) => s + i.monthly_amount, 0)
+  const memberMap = Object.fromEntries(members.map((m) => [m.id, m]))
 
   return (
     <div className="space-y-5">
@@ -755,6 +1070,9 @@ function IncomeTab({
                         >
                           Inactive
                         </span>
+                      )}
+                      {members.length > 0 && (
+                        <MemberBadge member={source.member_id ? memberMap[source.member_id] : undefined} />
                       )}
                     </div>
                   </div>
@@ -804,6 +1122,7 @@ function IncomeTab({
                 Currently Active
               </label>
             </div>
+            <MemberAssignSelect members={members} value={form.member_id} onChange={set('member_id')} />
           </div>
           <div className="mt-4 flex justify-end">
             <Button onClick={handleAdd} loading={adding}>
@@ -820,9 +1139,11 @@ function IncomeTab({
 
 function ExpensesTab({
   initialExpenses,
+  members,
   onToast,
 }: {
   initialExpenses: Expense[]
+  members: HouseholdMember[]
   onToast: (msg: string, type: 'success' | 'error') => void
 }) {
   const [expenses, setExpenses] = useState<Expense[]>(initialExpenses)
@@ -837,6 +1158,7 @@ function ExpensesTab({
     frequency: 'monthly' as Expense['frequency'],
     is_essential: true,
     notes: '',
+    member_id: '',
   }
   const [form, setForm] = useState(blankForm)
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
@@ -865,6 +1187,7 @@ function ExpensesTab({
         .from('expenses')
         .insert({
           user_id: user.id,
+          member_id: form.member_id || null,
           name: form.name,
           category: form.category,
           amount: parseFloat(form.amount),
@@ -897,6 +1220,7 @@ function ExpensesTab({
 
   const totalMonthly = expenses.reduce((s, e) => s + e.monthly_equivalent, 0)
   const grouped = groupBy(expenses, 'category')
+  const memberMap = Object.fromEntries(members.map((m) => [m.id, m]))
 
   return (
     <div className="space-y-5">
@@ -941,6 +1265,9 @@ function ExpensesTab({
                               >
                                 Essential
                               </span>
+                            )}
+                            {members.length > 0 && (
+                              <MemberBadge member={expense.member_id ? memberMap[expense.member_id] : undefined} />
                             )}
                           </div>
                           <p className="text-xs text-[#64748b]">
@@ -1014,6 +1341,7 @@ function ExpensesTab({
                 </p>
               )}
             </div>
+            <MemberAssignSelect members={members} value={form.member_id} onChange={set('member_id')} />
           </div>
           <div className="mt-4 flex justify-end">
             <Button onClick={handleAdd} loading={adding}>
@@ -1256,6 +1584,8 @@ function InvestmentsTab({
 // ─── Root Component ───────────────────────────────────────────────────────────
 
 export function SetupForm({
+  members: initialMembers,
+  profiles,
   profile,
   assets,
   liabilities,
@@ -1263,8 +1593,9 @@ export function SetupForm({
   expenses,
   holdings,
 }: SetupFormProps) {
-  const [activeTab, setActiveTab] = useState<TabId>('profile')
+  const [activeTab, setActiveTab] = useState<TabId>('members')
   const [toasts, setToasts] = useState<ToastState[]>([])
+  const [members, setMembers] = useState<HouseholdMember[]>(initialMembers)
 
   const showToast = useCallback((message: string, type: 'success' | 'error') => {
     const id = Date.now()
@@ -1277,6 +1608,7 @@ export function SetupForm({
   // Progress summary
   const profileComplete = !!profile?.age || !!profile?.country
   const counts = {
+    members: members.length,
     profile: profileComplete ? 1 : 0,
     assets: assets.length,
     liabilities: liabilities.length,
@@ -1301,6 +1633,7 @@ export function SetupForm({
         style={{ background: '#111827', border: '1px solid #1e2a3a' }}
       >
         {[
+          { key: 'members', label: 'Members', count: counts.members, unit: 'people' },
           { key: 'profile', label: 'Profile', count: counts.profile, unit: profileComplete ? 'done' : 'missing' },
           { key: 'assets', label: 'Assets', count: counts.assets, unit: 'items' },
           { key: 'liabilities', label: 'Liabilities', count: counts.liabilities, unit: 'items' },
@@ -1349,20 +1682,32 @@ export function SetupForm({
 
       {/* Tab panels */}
       <div role="tabpanel">
+        {activeTab === 'members' && (
+          <MembersTab
+            initialMembers={members}
+            onToast={showToast}
+            onMembersChange={setMembers}
+          />
+        )}
         {activeTab === 'profile' && (
-          <ProfileTab profile={profile} onToast={showToast} />
+          <ProfileTab
+            profiles={profiles}
+            profile={profile}
+            members={members}
+            onToast={showToast}
+          />
         )}
         {activeTab === 'assets' && (
-          <AssetsTab initialAssets={assets} onToast={showToast} />
+          <AssetsTab initialAssets={assets} members={members} onToast={showToast} />
         )}
         {activeTab === 'liabilities' && (
-          <LiabilitiesTab initialLiabilities={liabilities} onToast={showToast} />
+          <LiabilitiesTab initialLiabilities={liabilities} members={members} onToast={showToast} />
         )}
         {activeTab === 'income' && (
-          <IncomeTab initialIncome={incomeSources} onToast={showToast} />
+          <IncomeTab initialIncome={incomeSources} members={members} onToast={showToast} />
         )}
         {activeTab === 'expenses' && (
-          <ExpensesTab initialExpenses={expenses} onToast={showToast} />
+          <ExpensesTab initialExpenses={expenses} members={members} onToast={showToast} />
         )}
         {activeTab === 'investments' && (
           <InvestmentsTab initialHoldings={holdings} onToast={showToast} />

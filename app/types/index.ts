@@ -1,6 +1,18 @@
+export interface HouseholdMember {
+  id: string
+  user_id: string
+  name: string
+  relationship: 'self' | 'partner' | 'dependent' | 'other'
+  color: string
+  is_primary: boolean
+  created_at: string
+  updated_at: string
+}
+
 export interface FinancialProfile {
   id: string
   user_id: string
+  member_id?: string | null
   age: number | null
   country: string | null
   tax_jurisdiction: string | null
@@ -21,6 +33,7 @@ export interface FinancialProfile {
 export interface Asset {
   id: string
   user_id: string
+  member_id?: string | null
   name: string
   type: 'cash' | 'savings' | 'investment' | 'real_estate' | 'retirement' | 'business' | 'other'
   value: number
@@ -35,6 +48,7 @@ export interface Asset {
 export interface Liability {
   id: string
   user_id: string
+  member_id?: string | null
   name: string
   type: 'mortgage' | 'car_loan' | 'student_loan' | 'credit_card' | 'personal_loan' | 'business_loan' | 'other'
   balance: number
@@ -52,6 +66,7 @@ export interface Liability {
 export interface IncomeSource {
   id: string
   user_id: string
+  member_id?: string | null
   name: string
   type: 'salary' | 'freelance' | 'rental' | 'dividends' | 'business' | 'side_hustle' | 'other'
   monthly_amount: number
@@ -65,6 +80,7 @@ export interface IncomeSource {
 export interface Expense {
   id: string
   user_id: string
+  member_id?: string | null
   name: string
   category: 'housing' | 'transport' | 'food' | 'utilities' | 'insurance' | 'healthcare' | 'entertainment' | 'education' | 'savings' | 'debt_payment' | 'other'
   amount: number

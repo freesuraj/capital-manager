@@ -6,7 +6,9 @@ import type {
   Expense,
   InvestmentHolding,
   FinancialProfile,
+  HouseholdMember,
 } from '@/types'
+import type { ConversationSummary, DBMessage } from './advisor-chat'
 import { AdvisorChat } from './advisor-chat'
 
 // ─── Formatters ──────────────────────────────────────────────────────────────
@@ -25,41 +27,16 @@ function formatPercent(value: number): string {
 
 // ─── Financial context builder ───────────────────────────────────────────────
 
-function buildFinancialContext(
+function buildMemberSection(
+  memberName: string,
   profile: FinancialProfile | null,
   assets: Asset[],
   liabilities: Liability[],
   incomeSources: IncomeSource[],
   expenses: Expense[],
-  holdings: InvestmentHolding[]
-): string {
-  const totalAssets = assets.reduce((s, a) => s + a.value, 0)
-  const totalLiabilities = liabilities.reduce((s, l) => s + l.balance, 0)
-  const netWorth = totalAssets - totalLiabilities
+): string[] {
+  const lines: string[] = []
 
-  const totalMonthlyIncome = incomeSources
-    .filter((i) => i.is_active)
-    .reduce((s, i) => s + i.monthly_amount, 0)
-
-  const totalMonthlyExpenses = expenses.reduce((s, e) => s + e.monthly_equivalent, 0)
-  const monthlyCashFlow = totalMonthlyIncome - totalMonthlyExpenses
-
-  const totalDebtPayments = liabilities.reduce((s, l) => s + l.monthly_payment, 0)
-  const debtToIncomeRatio =
-    totalMonthlyIncome > 0 ? (totalDebtPayments / totalMonthlyIncome) * 100 : 0
-
-  const cashAssets = assets
-    .filter((a) => ['cash', 'savings'].includes(a.type))
-    .reduce((s, a) => s + a.value, 0)
-  const emergencyFundMonths =
-    totalMonthlyExpenses > 0 ? cashAssets / totalMonthlyExpenses : 0
-
-  const sections: string[] = []
-
-  sections.push('## User Current Financial Situation')
-  sections.push('')
-
-  // Profile
   if (profile) {
     const profileParts: string[] = []
     if (profile.age) profileParts.push(`Age: ${profile.age}`)
@@ -74,73 +51,51 @@ function buildFinancialContext(
       profileParts.push(`Employment: ${empMap[profile.employment_status] ?? profile.employment_status}`)
     }
     if (profile.risk_tolerance) {
-      profileParts.push(
-        `Risk tolerance: ${profile.risk_tolerance.charAt(0).toUpperCase() + profile.risk_tolerance.slice(1)}`
-      )
+      profileParts.push(`Risk tolerance: ${profile.risk_tolerance.charAt(0).toUpperCase() + profile.risk_tolerance.slice(1)}`)
     }
     if (profile.investment_experience) {
-      profileParts.push(
-        `Investment experience: ${profile.investment_experience.charAt(0).toUpperCase() + profile.investment_experience.slice(1)}`
-      )
+      profileParts.push(`Investment experience: ${profile.investment_experience.charAt(0).toUpperCase() + profile.investment_experience.slice(1)}`)
     }
     if (profile.time_horizon) profileParts.push(`Time horizon: ${profile.time_horizon}`)
     if (profile.dependents !== null) profileParts.push(`Dependents: ${profile.dependents}`)
-    if (profile.tax_jurisdiction) profileParts.push(`Tax jurisdiction: ${profile.tax_jurisdiction}`)
-    if (profile.emergency_fund_target) {
-      profileParts.push(`Emergency fund target: ${formatCurrency(profile.emergency_fund_target)}`)
-    }
     if (profile.goal_priorities) profileParts.push(`Goal priorities: ${profile.goal_priorities}`)
-    if (profile.restrictions) profileParts.push(`Restrictions/constraints: ${profile.restrictions}`)
-
-    sections.push(`**Profile**: ${profileParts.join(', ')}`)
-    sections.push('')
+    if (profile.restrictions) profileParts.push(`Restrictions: ${profile.restrictions}`)
+    if (profileParts.length > 0) {
+      lines.push(`**Profile**: ${profileParts.join(', ')}`)
+    }
   }
 
-  // Assets
-  sections.push(`**Assets** (Total: ${formatCurrency(totalAssets)}):`)
-  if (assets.length === 0) {
-    sections.push('- No assets recorded')
-  } else {
+  if (assets.length > 0) {
+    const total = assets.reduce((s, a) => s + a.value, 0)
+    lines.push(`**Assets** (${formatCurrency(total)}):`)
     for (const a of assets) {
       const typeLabel = a.type.charAt(0).toUpperCase() + a.type.slice(1).replace('_', ' ')
-      sections.push(`- ${typeLabel} (${a.name}): ${formatCurrency(a.value)}${a.notes ? ` — ${a.notes}` : ''}`)
+      lines.push(`  - ${typeLabel} (${a.name}): ${formatCurrency(a.value)}`)
     }
   }
-  sections.push('')
 
-  // Liabilities
-  sections.push(`**Liabilities** (Total: ${formatCurrency(totalLiabilities)}):`)
-  if (liabilities.length === 0) {
-    sections.push('- No liabilities recorded')
-  } else {
+  if (liabilities.length > 0) {
+    const total = liabilities.reduce((s, l) => s + l.balance, 0)
+    lines.push(`**Liabilities** (${formatCurrency(total)}):`)
     for (const l of liabilities) {
       const typeLabel = l.type.charAt(0).toUpperCase() + l.type.slice(1).replace('_', ' ')
-      sections.push(
-        `- ${typeLabel} (${l.name}, ${formatPercent(l.interest_rate)} interest, ${formatCurrency(l.monthly_payment)}/mo): Balance ${formatCurrency(l.balance)}`
-      )
+      lines.push(`  - ${typeLabel} (${l.name}, ${formatPercent(l.interest_rate)} APR, ${formatCurrency(l.monthly_payment)}/mo): ${formatCurrency(l.balance)}`)
     }
   }
-  sections.push('')
 
-  // Income
   const activeIncome = incomeSources.filter((i) => i.is_active)
-  sections.push(`**Monthly Income** (Total: ${formatCurrency(totalMonthlyIncome)}):`)
-  if (activeIncome.length === 0) {
-    sections.push('- No income sources recorded')
-  } else {
+  if (activeIncome.length > 0) {
+    const total = activeIncome.reduce((s, i) => s + i.monthly_amount, 0)
+    lines.push(`**Income** (${formatCurrency(total)}/mo):`)
     for (const i of activeIncome) {
       const typeLabel = i.type.charAt(0).toUpperCase() + i.type.slice(1).replace('_', ' ')
-      sections.push(`- ${typeLabel} (${i.name}): ${formatCurrency(i.monthly_amount)}/mo`)
+      lines.push(`  - ${typeLabel} (${i.name}): ${formatCurrency(i.monthly_amount)}/mo`)
     }
   }
-  sections.push('')
 
-  // Expenses
-  sections.push(`**Monthly Expenses** (Total: ${formatCurrency(totalMonthlyExpenses)}):`)
-  if (expenses.length === 0) {
-    sections.push('- No expenses recorded')
-  } else {
-    // Group by category
+  if (expenses.length > 0) {
+    const total = expenses.reduce((s, e) => s + e.monthly_equivalent, 0)
+    lines.push(`**Expenses** (${formatCurrency(total)}/mo):`)
     const byCategory: Record<string, Expense[]> = {}
     for (const e of expenses) {
       if (!byCategory[e.category]) byCategory[e.category] = []
@@ -149,15 +104,71 @@ function buildFinancialContext(
     for (const [cat, items] of Object.entries(byCategory)) {
       const catLabel = cat.charAt(0).toUpperCase() + cat.slice(1).replace('_', ' ')
       const catTotal = items.reduce((s, e) => s + e.monthly_equivalent, 0)
-      sections.push(`- ${catLabel}: ${formatCurrency(catTotal)}/mo (${items.map((e) => e.name).join(', ')})`)
+      lines.push(`  - ${catLabel}: ${formatCurrency(catTotal)}/mo (${items.map((e) => e.name).join(', ')})`)
     }
   }
+
+  return lines
+}
+
+function buildFinancialContext(
+  members: HouseholdMember[],
+  profiles: FinancialProfile[],
+  assets: Asset[],
+  liabilities: Liability[],
+  incomeSources: IncomeSource[],
+  expenses: Expense[],
+  holdings: InvestmentHolding[]
+): string {
+  const sections: string[] = []
+  const isHousehold = members.length > 1
+
+  sections.push(isHousehold ? '## Household Financial Situation' : '## Financial Situation')
   sections.push('')
 
-  // Investment holdings
+  if (members.length > 0) {
+    // Per-member sections
+    for (const member of members) {
+      sections.push(`### ${member.name} (${member.relationship})`)
+      const memberProfile = profiles.find((p) => p.member_id === member.id) ?? null
+      const memberAssets = assets.filter((a) => a.member_id === member.id)
+      const memberLiabilities = liabilities.filter((l) => l.member_id === member.id)
+      const memberIncome = incomeSources.filter((i) => i.member_id === member.id)
+      const memberExpenses = expenses.filter((e) => e.member_id === member.id)
+
+      const memberLines = buildMemberSection(member.name, memberProfile, memberAssets, memberLiabilities, memberIncome, memberExpenses)
+      if (memberLines.length === 0) {
+        sections.push('_(no data entered for this member yet)_')
+      } else {
+        sections.push(...memberLines)
+      }
+      sections.push('')
+    }
+
+    // Joint / Household section
+    const jointAssets = assets.filter((a) => !a.member_id)
+    const jointLiabilities = liabilities.filter((l) => !l.member_id)
+    const jointIncome = incomeSources.filter((i) => !i.member_id)
+    const jointExpenses = expenses.filter((e) => !e.member_id)
+
+    if (jointAssets.length > 0 || jointLiabilities.length > 0 || jointIncome.length > 0 || jointExpenses.length > 0) {
+      sections.push('### Joint / Household')
+      const jointLines = buildMemberSection('Joint', null, jointAssets, jointLiabilities, jointIncome, jointExpenses)
+      sections.push(...jointLines)
+      sections.push('')
+    }
+  } else {
+    // No members — legacy single-person mode
+    const profile = profiles[0] ?? null
+    const legacyLines = buildMemberSection('User', profile, assets, liabilities, incomeSources, expenses)
+    sections.push(...legacyLines)
+    sections.push('')
+  }
+
+  // Investment holdings (shared)
   if (holdings.length > 0) {
     const totalHoldingsValue = holdings.reduce((s, h) => s + h.current_value, 0)
-    sections.push(`**Investment Holdings** (Total: ${formatCurrency(totalHoldingsValue)}):`)
+    sections.push(`### Investment Holdings (Total: ${formatCurrency(totalHoldingsValue)})`)
     for (const h of holdings) {
       const typeLabel = h.type.charAt(0).toUpperCase() + h.type.slice(1).replace('_', ' ')
       const costBasis = h.cost_basis ? `, cost basis ${formatCurrency(h.cost_basis)}` : ''
@@ -172,12 +183,23 @@ function buildFinancialContext(
     sections.push('')
   }
 
-  // Key metrics
-  sections.push('**Key Financial Metrics**:')
+  // Combined household totals
+  const totalAssets = assets.reduce((s, a) => s + a.value, 0)
+  const totalLiabilities = liabilities.reduce((s, l) => s + l.balance, 0)
+  const netWorth = totalAssets - totalLiabilities
+  const totalMonthlyIncome = incomeSources.filter((i) => i.is_active).reduce((s, i) => s + i.monthly_amount, 0)
+  const totalMonthlyExpenses = expenses.reduce((s, e) => s + e.monthly_equivalent, 0)
+  const monthlyCashFlow = totalMonthlyIncome - totalMonthlyExpenses
+  const totalDebtPayments = liabilities.reduce((s, l) => s + l.monthly_payment, 0)
+  const debtToIncomeRatio = totalMonthlyIncome > 0 ? (totalDebtPayments / totalMonthlyIncome) * 100 : 0
+  const cashAssets = assets.filter((a) => ['cash', 'savings'].includes(a.type)).reduce((s, a) => s + a.value, 0)
+  const emergencyFundMonths = totalMonthlyExpenses > 0 ? cashAssets / totalMonthlyExpenses : 0
+
+  sections.push(`### ${isHousehold ? 'Combined Household' : ''} Key Metrics`)
   sections.push(`- Net Worth: ${formatCurrency(netWorth)}`)
   sections.push(`- Monthly Cash Flow: ${formatCurrency(monthlyCashFlow)}`)
   sections.push(`- Debt-to-Income Ratio: ${formatPercent(debtToIncomeRatio)}`)
-  sections.push(`- Emergency Fund: ${formatCurrency(cashAssets)} (${emergencyFundMonths.toFixed(1)} months of expenses)`)
+  sections.push(`- Emergency Fund: ${formatCurrency(cashAssets)} (${emergencyFundMonths.toFixed(1)} months)`)
   if (totalMonthlyIncome > 0) {
     const savingsRate = (monthlyCashFlow / totalMonthlyIncome) * 100
     sections.push(`- Savings Rate: ${formatPercent(Math.max(0, savingsRate))}`)
@@ -199,30 +221,57 @@ export default async function AdvisorPage() {
 
   // Parallel data fetch
   const [
-    { data: profileData },
+    { data: membersData },
+    { data: profilesData },
     { data: assetsData },
     { data: liabilitiesData },
     { data: incomeData },
     { data: expensesData },
     { data: holdingsData },
+    { data: conversationsData },
   ] = await Promise.all([
-    adminSupabase.from('financial_profiles').select('*').eq('user_id', user!.id).single(),
+    adminSupabase.from('household_members').select('*').eq('user_id', user!.id).order('created_at', { ascending: true }),
+    adminSupabase.from('financial_profiles').select('*').eq('user_id', user!.id),
     adminSupabase.from('assets').select('*').eq('user_id', user!.id),
     adminSupabase.from('liabilities').select('*').eq('user_id', user!.id),
     adminSupabase.from('income_sources').select('*').eq('user_id', user!.id),
     adminSupabase.from('expenses').select('*').eq('user_id', user!.id),
     adminSupabase.from('investment_holdings').select('*').eq('user_id', user!.id),
+    adminSupabase
+      .from('conversations')
+      .select('id, title, ai_provider, updated_at')
+      .eq('user_id', user!.id)
+      .order('updated_at', { ascending: false })
+      .limit(10),
   ])
 
-  const profile = profileData as FinancialProfile | null
+  const members = (membersData as HouseholdMember[]) ?? []
+  const profiles = (profilesData as FinancialProfile[]) ?? []
   const assets = (assetsData as Asset[]) ?? []
   const liabilities = (liabilitiesData as Liability[]) ?? []
   const incomeSources = (incomeData as IncomeSource[]) ?? []
   const expenses = (expensesData as Expense[]) ?? []
   const holdings = (holdingsData as InvestmentHolding[]) ?? []
+  const recentConversations = (conversationsData as ConversationSummary[]) ?? []
+
+  // Load messages from the most recent conversation for AI memory
+  let initialMessages: DBMessage[] = []
+  let initialConversationId: string | null = null
+  if (recentConversations.length > 0) {
+    const latest = recentConversations[0]
+    initialConversationId = latest.id
+    const { data: msgData } = await adminSupabase
+      .from('messages')
+      .select('id, role, content')
+      .eq('conversation_id', latest.id)
+      .order('created_at', { ascending: true })
+      .limit(100)
+    initialMessages = (msgData as DBMessage[]) ?? []
+  }
 
   const financialContext = buildFinancialContext(
-    profile,
+    members,
+    profiles,
     assets,
     liabilities,
     incomeSources,
@@ -252,6 +301,9 @@ export default async function AdvisorPage() {
   const emergencyFundMonths =
     totalMonthlyExpenses > 0 ? cashAssets / totalMonthlyExpenses : 0
 
+  // Primary profile for sidebar display
+  const primaryProfile = profiles.find((p) => p.member_id === (members[0]?.id ?? null)) ?? profiles[0] ?? null
+
   const initialData = {
     netWorth,
     totalAssets,
@@ -264,14 +316,18 @@ export default async function AdvisorPage() {
     debtToIncomeRatio,
     emergencyFundMonths,
     hasData: assets.length > 0 || incomeSources.length > 0,
-    profileRiskTolerance: profile?.risk_tolerance ?? null,
-    profileAge: profile?.age ?? null,
+    profileRiskTolerance: primaryProfile?.risk_tolerance ?? null,
+    profileAge: primaryProfile?.age ?? null,
   }
 
   return (
     <AdvisorChat
       financialContext={financialContext}
       initialData={initialData}
+      userId={user!.id}
+      initialConversationId={initialConversationId}
+      initialMessages={initialMessages}
+      recentConversations={recentConversations}
     />
   )
 }

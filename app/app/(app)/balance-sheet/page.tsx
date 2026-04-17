@@ -4,7 +4,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { PageHeader } from '@/components/layout/page-header'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { NetWorthStackedBar } from '@/components/charts/net-worth-bar'
-import type { Asset, Liability } from '@/types'
+import type { Asset, Liability, HouseholdMember } from '@/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -107,11 +107,13 @@ function AssetSection({
   assets,
   subtotal,
   totalAssets,
+  memberMap,
 }: {
   type: string
   assets: Asset[]
   subtotal: number
   totalAssets: number
+  memberMap: Record<string, HouseholdMember>
 }) {
   const color = ASSET_TYPE_COLORS[type] ?? '#64748b'
   const pct = totalAssets > 0 ? (subtotal / totalAssets) * 100 : 0
@@ -137,22 +139,35 @@ function AssetSection({
 
       {/* Assets in this category */}
       <div className="flex flex-col gap-1 pl-2">
-        {assets.map((asset) => (
-          <div
-            key={asset.id}
-            className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-white/[0.02] transition-colors"
-          >
-            <div className="flex-1 min-w-0">
-              <p className="text-sm text-[#e2e8f0] font-medium truncate">{asset.name}</p>
-              {asset.institution && (
-                <p className="text-xs text-[#64748b] truncate">{asset.institution}</p>
-              )}
+        {assets.map((asset) => {
+          const member = asset.member_id ? memberMap[asset.member_id] : undefined
+          return (
+            <div
+              key={asset.id}
+              className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-white/[0.02] transition-colors"
+            >
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm text-[#e2e8f0] font-medium truncate">{asset.name}</p>
+                  {member && (
+                    <span
+                      className="shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium"
+                      style={{ background: `${member.color}20`, color: member.color }}
+                    >
+                      {member.name}
+                    </span>
+                  )}
+                </div>
+                {asset.institution && (
+                  <p className="text-xs text-[#64748b] truncate">{asset.institution}</p>
+                )}
+              </div>
+              <span className="text-sm font-semibold text-[#e2e8f0] tabular-nums ml-4 shrink-0">
+                {fmt(asset.value)}
+              </span>
             </div>
-            <span className="text-sm font-semibold text-[#e2e8f0] tabular-nums ml-4 shrink-0">
-              {fmt(asset.value)}
-            </span>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
@@ -165,11 +180,13 @@ function LiabilitySection({
   liabilities,
   subtotal,
   totalLiabilities,
+  memberMap,
 }: {
   type: string
   liabilities: Liability[]
   subtotal: number
   totalLiabilities: number
+  memberMap: Record<string, HouseholdMember>
 }) {
   const color = LIABILITY_TYPE_COLORS[type] ?? '#64748b'
   const pct = totalLiabilities > 0 ? (subtotal / totalLiabilities) * 100 : 0
@@ -193,28 +210,41 @@ function LiabilitySection({
       </div>
 
       <div className="flex flex-col gap-1 pl-2">
-        {liabilities.map((liability) => (
-          <div
-            key={liability.id}
-            className="flex items-start justify-between py-2 px-3 rounded-lg hover:bg-white/[0.02] transition-colors"
-          >
-            <div className="flex-1 min-w-0">
-              <p className="text-sm text-[#e2e8f0] font-medium truncate">{liability.name}</p>
-              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                {liability.institution && (
-                  <span className="text-xs text-[#64748b]">{liability.institution}</span>
-                )}
-                <span className="text-xs text-[#f59e0b]">{liability.interest_rate.toFixed(2)}% APR</span>
-                {liability.monthly_payment > 0 && (
-                  <span className="text-xs text-[#64748b]">{fmt(liability.monthly_payment)}/mo</span>
-                )}
+        {liabilities.map((liability) => {
+          const member = liability.member_id ? memberMap[liability.member_id] : undefined
+          return (
+            <div
+              key={liability.id}
+              className="flex items-start justify-between py-2 px-3 rounded-lg hover:bg-white/[0.02] transition-colors"
+            >
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm text-[#e2e8f0] font-medium truncate">{liability.name}</p>
+                  {member && (
+                    <span
+                      className="shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium"
+                      style={{ background: `${member.color}20`, color: member.color }}
+                    >
+                      {member.name}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                  {liability.institution && (
+                    <span className="text-xs text-[#64748b]">{liability.institution}</span>
+                  )}
+                  <span className="text-xs text-[#f59e0b]">{liability.interest_rate.toFixed(2)}% APR</span>
+                  {liability.monthly_payment > 0 && (
+                    <span className="text-xs text-[#64748b]">{fmt(liability.monthly_payment)}/mo</span>
+                  )}
+                </div>
               </div>
+              <span className="text-sm font-semibold text-[#ef4444] tabular-nums ml-4 shrink-0">
+                {fmt(liability.balance)}
+              </span>
             </div>
-            <span className="text-sm font-semibold text-[#ef4444] tabular-nums ml-4 shrink-0">
-              {fmt(liability.balance)}
-            </span>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
@@ -272,13 +302,17 @@ export default async function BalanceSheetPage() {
   } = await supabase.auth.getUser()
   const adminSupabase = createAdminClient()
 
-  const [{ data: assetsRaw }, { data: liabilitiesRaw }] = await Promise.all([
+  const [{ data: membersRaw }, { data: assetsRaw }, { data: liabilitiesRaw }] = await Promise.all([
+    adminSupabase.from('household_members').select('*').eq('user_id', user!.id),
     adminSupabase.from('assets').select('*').eq('user_id', user!.id),
     adminSupabase.from('liabilities').select('*').eq('user_id', user!.id),
   ])
 
   const assets = (assetsRaw as Asset[] | null) ?? []
   const liabilities = (liabilitiesRaw as Liability[] | null) ?? []
+  const memberMap: Record<string, HouseholdMember> = Object.fromEntries(
+    ((membersRaw as HouseholdMember[] | null) ?? []).map((m) => [m.id, m])
+  )
 
   const hasData = assets.length > 0 || liabilities.length > 0
 
@@ -455,6 +489,7 @@ export default async function BalanceSheetPage() {
                     assets={typeAssets}
                     subtotal={subtotal}
                     totalAssets={totalAssets}
+                    memberMap={memberMap}
                   />
                 )
               })}
@@ -506,6 +541,7 @@ export default async function BalanceSheetPage() {
                         liabilities={typeLiabilities}
                         subtotal={subtotal}
                         totalLiabilities={totalLiabilities}
+                        memberMap={memberMap}
                       />
                     )
                   })}

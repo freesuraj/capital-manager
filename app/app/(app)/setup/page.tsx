@@ -8,6 +8,7 @@ import type {
   IncomeSource,
   Expense,
   InvestmentHolding,
+  HouseholdMember,
 } from '@/types'
 
 export default async function SetupPage() {
@@ -18,7 +19,8 @@ export default async function SetupPage() {
   const adminSupabase = createAdminClient()
 
   const [
-    { data: profileData },
+    { data: membersData },
+    { data: profilesData },
     { data: assetsData },
     { data: liabilitiesData },
     { data: incomeData },
@@ -26,10 +28,15 @@ export default async function SetupPage() {
     { data: holdingsData },
   ] = await Promise.all([
     supabase
+      .from('household_members')
+      .select('*')
+      .eq('user_id', user!.id)
+      .order('created_at', { ascending: true }),
+    supabase
       .from('financial_profiles')
       .select('*')
       .eq('user_id', user!.id)
-      .maybeSingle(),
+      .order('created_at', { ascending: true }),
     supabase
       .from('assets')
       .select('*')
@@ -57,6 +64,10 @@ export default async function SetupPage() {
       .order('created_at', { ascending: false }),
   ])
 
+  // Legacy: if no member_id on profiles, pick first profile for backward-compat
+  const profiles = (profilesData as FinancialProfile[]) ?? []
+  const profile = profiles.find((p) => !p.member_id) ?? profiles[0] ?? null
+
   return (
     <div className="fade-in">
       <PageHeader
@@ -64,7 +75,9 @@ export default async function SetupPage() {
         subtitle="Enter your financial data to power your dashboard and AI advisor"
       />
       <SetupForm
-        profile={(profileData as FinancialProfile) ?? null}
+        members={(membersData as HouseholdMember[]) ?? []}
+        profiles={profiles}
+        profile={profile}
         assets={(assetsData as Asset[]) ?? []}
         liabilities={(liabilitiesData as Liability[]) ?? []}
         incomeSources={(incomeData as IncomeSource[]) ?? []}

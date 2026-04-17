@@ -13,7 +13,10 @@ import {
   AlertCircle,
   Zap,
   Loader2,
+  Plus,
+  MessageSquare,
 } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -24,6 +27,19 @@ interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
   streaming?: boolean
+}
+
+export interface DBMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface ConversationSummary {
+  id: string
+  title: string
+  ai_provider: 'claude' | 'gemini'
+  updated_at: string
 }
 
 interface InitialData {
@@ -45,6 +61,10 @@ interface InitialData {
 interface AdvisorChatProps {
   financialContext: string
   initialData: InitialData
+  userId: string
+  initialConversationId: string | null
+  initialMessages: DBMessage[]
+  recentConversations: ConversationSummary[]
 }
 
 // ─── Suggested prompts ────────────────────────────────────────────────────────
@@ -225,12 +245,24 @@ function ThinkingDots() {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function AdvisorChat({ financialContext, initialData }: AdvisorChatProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+export function AdvisorChat({
+  financialContext,
+  initialData,
+  userId,
+  initialConversationId,
+  initialMessages,
+  recentConversations: initialRecentConversations,
+}: AdvisorChatProps) {
+  const [messages, setMessages] = useState<ChatMessage[]>(
+    initialMessages.map((m) => ({ id: m.id, role: m.role, content: m.content }))
+  )
   const [input, setInput] = useState('')
   const [provider, setProvider] = useState<Provider>('gemini')
   const [isStreaming, setIsStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [conversationId, setConversationId] = useState<string | null>(initialConversationId)
+  const [recentConvs, setRecentConvs] = useState<ConversationSummary[]>(initialRecentConversations)
+  const [isLoadingConversation, setIsLoadingConversation] = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -248,6 +280,34 @@ export function AdvisorChat({ financialContext, initialData }: AdvisorChatProps)
     el.style.height = 'auto'
     el.style.height = `${Math.min(el.scrollHeight, 180)}px`
   }, [input])
+
+  // Load messages for a conversation
+  async function loadConversation(convId: string) {
+    if (convId === conversationId || isLoadingConversation) return
+    setIsLoadingConversation(true)
+    setMessages([])
+    setError(null)
+
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('messages')
+      .select('id, role, content')
+      .eq('conversation_id', convId)
+      .order('created_at', { ascending: true })
+      .limit(100)
+
+    if (data) {
+      setMessages(data.map((m) => ({ id: m.id, role: m.role as 'user' | 'assistant', content: m.content })))
+    }
+    setConversationId(convId)
+    setIsLoadingConversation(false)
+  }
+
+  function startNewConversation() {
+    setConversationId(null)
+    setMessages([])
+    setError(null)
+  }
 
   const sendMessage = useCallback(
     async (content: string) => {
@@ -322,6 +382,61 @@ export function AdvisorChat({ financialContext, initialData }: AdvisorChatProps)
             m.id === assistantId ? { ...m, streaming: false } : m
           )
         )
+
+        // ── Persist to database ──────────────────────────────────────────────
+        if (accumulated) {
+          const supabase = createClient()
+          let activeConvId = conversationId
+
+          if (!activeConvId) {
+            // Create a new conversation titled from the first message
+            const title =
+              content.trim().length > 60
+                ? content.trim().slice(0, 60) + '…'
+                : content.trim()
+            const { data: conv } = await supabase
+              .from('conversations')
+              .insert({ user_id: userId, title, ai_provider: provider })
+              .select('id')
+              .single()
+            if (conv) {
+              activeConvId = conv.id
+              setConversationId(conv.id)
+              const newConv: ConversationSummary = {
+                id: conv.id,
+                title,
+                ai_provider: provider,
+                updated_at: new Date().toISOString(),
+              }
+              setRecentConvs((prev) => [newConv, ...prev].slice(0, 10))
+            }
+          } else {
+            // Update updated_at on existing conversation
+            await supabase
+              .from('conversations')
+              .update({ updated_at: new Date().toISOString() })
+              .eq('id', activeConvId)
+            setRecentConvs((prev) =>
+              prev
+                .map((c) =>
+                  c.id === activeConvId
+                    ? { ...c, updated_at: new Date().toISOString() }
+                    : c
+                )
+                .sort(
+                  (a, b) =>
+                    new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+                )
+            )
+          }
+
+          if (activeConvId) {
+            await supabase.from('messages').insert([
+              { conversation_id: activeConvId, role: 'user', content: content.trim() },
+              { conversation_id: activeConvId, role: 'assistant', content: accumulated },
+            ])
+          }
+        }
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') {
           // User cancelled
@@ -342,7 +457,7 @@ export function AdvisorChat({ financialContext, initialData }: AdvisorChatProps)
         abortControllerRef.current = null
       }
     },
-    [messages, provider, financialContext, isStreaming]
+    [messages, provider, financialContext, isStreaming, conversationId, userId]
   )
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -356,7 +471,7 @@ export function AdvisorChat({ financialContext, initialData }: AdvisorChatProps)
     abortControllerRef.current?.abort()
   }
 
-  const showWelcome = messages.length === 0
+  const showWelcome = messages.length === 0 && !isLoadingConversation
 
   return (
     <>
@@ -414,7 +529,7 @@ export function AdvisorChat({ financialContext, initialData }: AdvisorChatProps)
           </div>
 
           {/* Stats */}
-          <div className="flex-1 px-4 py-3">
+          <div className="px-4 py-3">
             {!initialData.hasData ? (
               <div className="flex flex-col items-center gap-3 py-8 text-center">
                 <AlertCircle size={28} className="text-[#f59e0b]" />
@@ -495,8 +610,59 @@ export function AdvisorChat({ financialContext, initialData }: AdvisorChatProps)
             )}
           </div>
 
+          {/* Recent Conversations */}
+          <div className="px-4 py-3 border-t border-[#1e2a3a] flex-1 overflow-y-auto">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[10px] text-[#64748b] uppercase tracking-wider">Conversations</p>
+              <button
+                onClick={startNewConversation}
+                className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] text-[#3b82f6] transition-colors"
+                style={{ border: '1px solid rgba(59,130,246,0.3)' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(59,130,246,0.08)' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+                type="button"
+                title="Start a new conversation"
+              >
+                <Plus size={10} />
+                New
+              </button>
+            </div>
+            {recentConvs.length === 0 ? (
+              <p className="text-[10px] text-[#64748b] py-2">No conversations yet.</p>
+            ) : (
+              <div className="flex flex-col gap-0.5">
+                {recentConvs.map((conv) => (
+                  <button
+                    key={conv.id}
+                    onClick={() => loadConversation(conv.id)}
+                    className="w-full text-left px-2 py-2 rounded-md transition-all duration-100"
+                    style={
+                      conv.id === conversationId
+                        ? { background: 'rgba(59,130,246,0.12)', color: '#e2e8f0' }
+                        : { color: '#94a3b8' }
+                    }
+                    onMouseEnter={(e) => {
+                      if (conv.id !== conversationId)
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
+                    }}
+                    onMouseLeave={(e) => {
+                      if (conv.id !== conversationId)
+                        e.currentTarget.style.background = 'transparent'
+                    }}
+                    type="button"
+                  >
+                    <div className="flex items-start gap-1.5">
+                      <MessageSquare size={11} className="shrink-0 mt-0.5 opacity-60" />
+                      <span className="text-[11px] leading-snug line-clamp-2">{conv.title}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Provider selector (sidebar version) */}
-          <div className="px-4 py-4 border-t border-[#1e2a3a]">
+          <div className="px-4 py-4 border-t border-[#1e2a3a] shrink-0">
             <p className="text-[10px] text-[#64748b] mb-2 uppercase tracking-wider">AI Provider</p>
             <div
               className="flex rounded-lg p-0.5 gap-0.5"
@@ -611,6 +777,14 @@ export function AdvisorChat({ financialContext, initialData }: AdvisorChatProps)
           <div className="flex-1 overflow-y-auto" style={{ background: '#0a0f1e' }}>
             <div className="max-w-3xl mx-auto px-4 py-6">
 
+              {/* Loading conversation state */}
+              {isLoadingConversation && (
+                <div className="flex items-center justify-center gap-2 py-16 text-[#64748b]">
+                  <Loader2 size={16} className="animate-spin" />
+                  <span className="text-sm">Loading conversation…</span>
+                </div>
+              )}
+
               {/* Welcome / empty state */}
               {showWelcome && (
                 <div className="flex flex-col items-center gap-6 mb-8 text-center pt-4">
@@ -696,7 +870,7 @@ export function AdvisorChat({ financialContext, initialData }: AdvisorChatProps)
               )}
 
               {/* Message list */}
-              <div className="flex flex-col gap-6">
+              <div className={`flex flex-col gap-6 ${isLoadingConversation ? 'hidden' : ''}`}>
                 {messages.map((msg) => (
                   <div
                     key={msg.id}
