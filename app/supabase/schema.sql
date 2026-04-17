@@ -5,7 +5,7 @@
 -- =============================================================================
 
 -- Enable required extensions
-create extension if not exists "uuid-ossp";
+
 
 -- =============================================================================
 -- TRIGGER FUNCTION: updated_at
@@ -24,7 +24,7 @@ $$ language plpgsql;
 -- =============================================================================
 
 create table if not exists financial_profiles (
-  id                   uuid primary key default uuid_generate_v4(),
+  id                   uuid primary key default gen_random_uuid(),
   user_id              uuid references auth.users(id) on delete cascade not null unique,
   age                  int,
   country              text,
@@ -59,7 +59,7 @@ create trigger update_financial_profiles_updated_at
 -- =============================================================================
 
 create table if not exists assets (
-  id             uuid primary key default uuid_generate_v4(),
+  id             uuid primary key default gen_random_uuid(),
   user_id        uuid references auth.users(id) on delete cascade not null,
   name           text not null,
   type           text not null check (type in ('cash', 'savings', 'investment', 'real_estate', 'retirement', 'business', 'other')),
@@ -89,7 +89,7 @@ create trigger update_assets_updated_at
 -- =============================================================================
 
 create table if not exists liabilities (
-  id               uuid primary key default uuid_generate_v4(),
+  id               uuid primary key default gen_random_uuid(),
   user_id          uuid references auth.users(id) on delete cascade not null,
   name             text not null,
   type             text not null check (type in ('mortgage', 'car_loan', 'student_loan', 'credit_card', 'personal_loan', 'business_loan', 'other')),
@@ -122,7 +122,7 @@ create trigger update_liabilities_updated_at
 -- =============================================================================
 
 create table if not exists income_sources (
-  id             uuid primary key default uuid_generate_v4(),
+  id             uuid primary key default gen_random_uuid(),
   user_id        uuid references auth.users(id) on delete cascade not null,
   name           text not null,
   type           text not null check (type in ('salary', 'freelance', 'rental', 'dividends', 'business', 'side_hustle', 'other')),
@@ -151,7 +151,7 @@ create trigger update_income_sources_updated_at
 -- =============================================================================
 
 create table if not exists expenses (
-  id                 uuid primary key default uuid_generate_v4(),
+  id                 uuid primary key default gen_random_uuid(),
   user_id            uuid references auth.users(id) on delete cascade not null,
   name               text not null,
   category           text not null check (category in ('housing', 'transport', 'food', 'utilities', 'insurance', 'healthcare', 'entertainment', 'education', 'savings', 'debt_payment', 'other')),
@@ -182,7 +182,7 @@ create trigger update_expenses_updated_at
 -- =============================================================================
 
 create table if not exists investment_holdings (
-  id            uuid primary key default uuid_generate_v4(),
+  id            uuid primary key default gen_random_uuid(),
   user_id       uuid references auth.users(id) on delete cascade not null,
   ticker        text,
   name          text not null,
@@ -217,7 +217,7 @@ create trigger update_investment_holdings_updated_at
 -- =============================================================================
 
 create table if not exists portfolio_snapshots (
-  id                 uuid primary key default uuid_generate_v4(),
+  id                 uuid primary key default gen_random_uuid(),
   user_id            uuid references auth.users(id) on delete cascade not null,
   date               date not null,
   total_assets       numeric(15,2) not null default 0,
@@ -244,7 +244,7 @@ create index if not exists idx_portfolio_snapshots_date on portfolio_snapshots(u
 -- =============================================================================
 
 create table if not exists conversations (
-  id          uuid primary key default uuid_generate_v4(),
+  id          uuid primary key default gen_random_uuid(),
   user_id     uuid references auth.users(id) on delete cascade not null,
   title       text not null default 'New conversation',
   ai_provider text not null default 'claude' check (ai_provider in ('claude', 'gemini')),
@@ -272,7 +272,7 @@ create trigger update_conversations_updated_at
 -- =============================================================================
 
 create table if not exists messages (
-  id              uuid primary key default uuid_generate_v4(),
+  id              uuid primary key default gen_random_uuid(),
   conversation_id uuid references conversations(id) on delete cascade not null,
   role            text not null check (role in ('user', 'assistant')),
   content         text not null,
@@ -298,7 +298,7 @@ create index if not exists idx_messages_created_at on messages(conversation_id, 
 -- =============================================================================
 
 create table if not exists goals (
-  id            uuid primary key default uuid_generate_v4(),
+  id            uuid primary key default gen_random_uuid(),
   user_id       uuid references auth.users(id) on delete cascade not null,
   title         text not null,
   description   text,
