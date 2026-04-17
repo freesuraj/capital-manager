@@ -449,16 +449,19 @@ function ProfileTab({
         updated_at: new Date().toISOString(),
       }
 
-      // Upsert by member_id when set, else by user_id for legacy profile
+      // Manual upsert: find existing row, then insert or update
       let error
-      if (selectedMemberId) {
-        ;({ error } = await supabase
-          .from('financial_profiles')
-          .upsert(payload, { onConflict: 'member_id' }))
+      const query = selectedMemberId
+        ? supabase.from('financial_profiles').select('id').eq('member_id', selectedMemberId).maybeSingle()
+        : supabase.from('financial_profiles').select('id').eq('user_id', user.id).is('member_id', null).maybeSingle()
+
+      const { data: existing, error: fetchError } = await query
+      if (fetchError) { onToast(fetchError.message, 'error'); return }
+
+      if (existing) {
+        ;({ error } = await supabase.from('financial_profiles').update(payload).eq('id', existing.id))
       } else {
-        ;({ error } = await supabase
-          .from('financial_profiles')
-          .upsert(payload, { onConflict: 'user_id' }))
+        ;({ error } = await supabase.from('financial_profiles').insert(payload))
       }
 
       if (error) onToast(error.message, 'error')

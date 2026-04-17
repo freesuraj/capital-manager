@@ -24,7 +24,7 @@ export function Select({
     <div className="space-y-1">
       {label && <label className="text-sm text-[#94a3b8]">{label}</label>}
       <select
-        className="w-full bg-[#0f172a] border border-[#1e2a3a] rounded-lg px-3 py-2 text-[#e2e8f0] focus:border-[#3b82f6] focus:outline-none transition-colors"
+        className="w-full bg-[#0f172a] border border-[#1e2a3a] rounded-lg px-3 py-2 text-base text-[#e2e8f0] focus:border-[#3b82f6] focus:outline-none transition-colors"
         {...props}
       >
         {children}
