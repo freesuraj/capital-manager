@@ -25,7 +25,7 @@ jobs:
       - name: Set Fly.io runtime secrets
         run: |
           flyctl secrets set \
-            SUPABASE_SERVICE_ROLE_KEY="${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            SUPABASE_SECRET_KEY="${{ secrets.SUPABASE_SECRET_KEY }}" \
             ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}" \
             GOOGLE_AI_API_KEY="${{ secrets.GOOGLE_AI_API_KEY }}" \
             --stage
@@ -34,7 +34,7 @@ jobs:
 
       # NEXT_PUBLIC_* vars must be passed as Docker build args — Next.js bakes
       # them into the JS bundle at build time so the browser can read them.
-      # SUPABASE_SERVICE_ROLE_KEY is intentionally NOT here (server-only).
+      # SUPABASE_SECRET_KEY is intentionally NOT here (server-only).
       - name: Deploy to Fly.io
         run: |
           flyctl deploy --remote-only \

@@ -30,12 +30,12 @@ export async function createClient() {
   )
 }
 
-// Service-role admin client — bypasses RLS, server-only, no cookies.
+// Secret-key admin client — bypasses RLS, server-only, no cookies.
 // Use this for all data queries after you have verified the user via createClient().
 export function createAdminClient() {
   return createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    process.env.SUPABASE_SECRET_KEY!,
     {
       auth: {
         autoRefreshToken: false,
