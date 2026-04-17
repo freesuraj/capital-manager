@@ -10,6 +10,7 @@ jobs:
   deploy:
     name: Deploy
     runs-on: ubuntu-latest
+    environment: prod
     defaults:
       run:
         working-directory: app
@@ -19,19 +20,21 @@ jobs:
 
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
-      # Stage runtime secrets into Fly without triggering a deploy yet.
-      # --stage queues the update; the actual restart happens with `deploy` below.
+      # Stage all server-side runtime secrets into Fly without triggering a
+      # restart yet — the deploy step below picks them up atomically.
       - name: Set Fly.io runtime secrets
         run: |
           flyctl secrets set \
+            SUPABASE_SERVICE_ROLE_KEY="${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
             ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}" \
             GOOGLE_AI_API_KEY="${{ secrets.GOOGLE_AI_API_KEY }}" \
             --stage
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
-      # Pass NEXT_PUBLIC_* vars as Docker build args — they get baked into the
-      # JS bundle at build time so the browser can read them.
+      # NEXT_PUBLIC_* vars must be passed as Docker build args — Next.js bakes
+      # them into the JS bundle at build time so the browser can read them.
+      # SUPABASE_SERVICE_ROLE_KEY is intentionally NOT here (server-only).
       - name: Deploy to Fly.io
         run: |
           flyctl deploy --remote-only \

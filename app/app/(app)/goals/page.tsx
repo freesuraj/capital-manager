@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { Target, Bot, Plus, TrendingUp, Calendar, ArrowRight, Zap } from 'lucide-react'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { PageHeader } from '@/components/layout/page-header'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -74,6 +74,7 @@ export default async function GoalsPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser()
+  const adminSupabase = createAdminClient()
 
   const [{ data: goalsRaw }, { data: incomeRaw }] = await Promise.all([
     supabase

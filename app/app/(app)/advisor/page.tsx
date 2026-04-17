@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import type {
   Asset,
   Liability,
@@ -195,6 +195,7 @@ export default async function AdvisorPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser()
+  const adminSupabase = createAdminClient()
 
   // Parallel data fetch
   const [
@@ -205,12 +206,12 @@ export default async function AdvisorPage() {
     { data: expensesData },
     { data: holdingsData },
   ] = await Promise.all([
-    supabase.from('financial_profiles').select('*').eq('user_id', user!.id).single(),
-    supabase.from('assets').select('*').eq('user_id', user!.id),
-    supabase.from('liabilities').select('*').eq('user_id', user!.id),
-    supabase.from('income_sources').select('*').eq('user_id', user!.id),
-    supabase.from('expenses').select('*').eq('user_id', user!.id),
-    supabase.from('investment_holdings').select('*').eq('user_id', user!.id),
+    adminSupabase.from('financial_profiles').select('*').eq('user_id', user!.id).single(),
+    adminSupabase.from('assets').select('*').eq('user_id', user!.id),
+    adminSupabase.from('liabilities').select('*').eq('user_id', user!.id),
+    adminSupabase.from('income_sources').select('*').eq('user_id', user!.id),
+    adminSupabase.from('expenses').select('*').eq('user_id', user!.id),
+    adminSupabase.from('investment_holdings').select('*').eq('user_id', user!.id),
   ])
 
   const profile = profileData as FinancialProfile | null

@@ -10,7 +10,7 @@ import {
   ArrowDownRight,
   ArrowUpRight,
 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { PageHeader } from '@/components/layout/page-header'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -237,10 +237,11 @@ export default async function CashFlowPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser()
+  const adminSupabase = createAdminClient()
 
   const [{ data: incomeRaw }, { data: expensesRaw }] = await Promise.all([
-    supabase.from('income_sources').select('*').eq('user_id', user!.id),
-    supabase.from('expenses').select('*').eq('user_id', user!.id),
+    adminSupabase.from('income_sources').select('*').eq('user_id', user!.id),
+    adminSupabase.from('expenses').select('*').eq('user_id', user!.id),
   ])
 
   const incomeSources = (incomeRaw as IncomeSource[] | null) ?? []

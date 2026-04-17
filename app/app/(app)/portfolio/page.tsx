@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { TrendingUp, TrendingDown, ArrowRight, BarChart3 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { PageHeader } from '@/components/layout/page-header'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -122,10 +122,11 @@ export default async function PortfolioPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser()
+  const adminSupabase = createAdminClient()
 
   const [{ data: holdingsRaw }, { data: assetsRaw }] = await Promise.all([
-    supabase.from('investment_holdings').select('*').eq('user_id', user!.id),
-    supabase.from('assets').select('*').eq('user_id', user!.id),
+    adminSupabase.from('investment_holdings').select('*').eq('user_id', user!.id),
+    adminSupabase.from('assets').select('*').eq('user_id', user!.id),
   ])
 
   const holdings = (holdingsRaw as InvestmentHolding[] | null) ?? []

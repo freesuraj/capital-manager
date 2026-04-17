@@ -1,6 +1,9 @@
 import { createServerClient } from '@supabase/ssr'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 
+// Cookie-based client — uses anon key + user session cookies.
+// Use this for auth: getUser(), getSession().
 export async function createClient() {
   const cookieStore = await cookies()
 
@@ -18,10 +21,25 @@ export async function createClient() {
               cookieStore.set(name, value, options)
             )
           } catch {
-            // The `setAll` method is called from a Server Component.
-            // Cookies can only be set in Route Handlers or Server Actions.
+            // Called from a Server Component — cookies can only be set
+            // in Route Handlers or Server Actions.
           }
         },
+      },
+    }
+  )
+}
+
+// Service-role admin client — bypasses RLS, server-only, no cookies.
+// Use this for all data queries after you have verified the user via createClient().
+export function createAdminClient() {
+  return createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
       },
     }
   )

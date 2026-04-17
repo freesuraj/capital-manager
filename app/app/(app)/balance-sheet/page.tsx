@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { Scale, TrendingUp, AlertCircle, ArrowRight } from 'lucide-react'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { PageHeader } from '@/components/layout/page-header'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { NetWorthStackedBar } from '@/components/charts/net-worth-bar'
@@ -270,10 +270,11 @@ export default async function BalanceSheetPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser()
+  const adminSupabase = createAdminClient()
 
   const [{ data: assetsRaw }, { data: liabilitiesRaw }] = await Promise.all([
-    supabase.from('assets').select('*').eq('user_id', user!.id),
-    supabase.from('liabilities').select('*').eq('user_id', user!.id),
+    adminSupabase.from('assets').select('*').eq('user_id', user!.id),
+    adminSupabase.from('liabilities').select('*').eq('user_id', user!.id),
   ])
 
   const assets = (assetsRaw as Asset[] | null) ?? []

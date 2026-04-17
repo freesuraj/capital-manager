@@ -12,7 +12,7 @@ import {
   Landmark,
   CreditCard,
 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { PageHeader } from '@/components/layout/page-header'
 import { StatCard } from '@/components/ui/stat-card'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
@@ -199,6 +199,7 @@ export default async function DashboardPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser()
+  const adminSupabase = createAdminClient()
 
   // Parallel data fetching
   const [
@@ -208,10 +209,10 @@ export default async function DashboardPage() {
     { data: expenses },
     { data: snapshots },
   ] = await Promise.all([
-    supabase.from('assets').select('*').eq('user_id', user!.id),
-    supabase.from('liabilities').select('*').eq('user_id', user!.id),
-    supabase.from('income_sources').select('*').eq('user_id', user!.id),
-    supabase.from('expenses').select('*').eq('user_id', user!.id),
+    adminSupabase.from('assets').select('*').eq('user_id', user!.id),
+    adminSupabase.from('liabilities').select('*').eq('user_id', user!.id),
+    adminSupabase.from('income_sources').select('*').eq('user_id', user!.id),
+    adminSupabase.from('expenses').select('*').eq('user_id', user!.id),
     supabase
       .from('portfolio_snapshots')
       .select('*')
