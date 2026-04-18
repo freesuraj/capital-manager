@@ -16,7 +16,7 @@ A personal finance portfolio manager web app. Single-user SaaS with an AI adviso
 - **Language**: TypeScript
 - **Styling**: Tailwind CSS v4 — use `@import "tailwindcss"`, inline hex colors (e.g. `bg-[#111827]`)
 - **Database**: Supabase (PostgreSQL + RLS + auth)
-- **AI**: Anthropic Claude (`claude-sonnet-4-6`) and Google Gemini (`gemini-2.0-flash`)
+- **AI**: Anthropic Claude (`claude-sonnet-4-6`) and Google Gemini (`gemini-2.5-flash-lite`)
 - **Charts**: Recharts
 - **Deployment**: Fly.io (`capital-manager`, region `syd`) via Docker
 
