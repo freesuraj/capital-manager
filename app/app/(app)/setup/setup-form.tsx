@@ -125,6 +125,21 @@ function DeleteButton({ onClick, loading }: { onClick: () => void; loading: bool
   )
 }
 
+function EditButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="p-1.5 rounded-lg transition-colors hover:bg-[#3b82f620] text-[#64748b] hover:text-[#3b82f6]"
+      aria-label="Edit"
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+        <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+      </svg>
+    </button>
+  )
+}
+
 function SectionDivider({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-3 my-5">
@@ -622,9 +637,10 @@ function AssetsTab({
   onToast: (msg: string, type: 'success' | 'error') => void
 }) {
   const [assets, setAssets] = useState<Asset[]>(initialAssets)
-  const [adding, startAdd] = useTransition()
+  const [saving, startSave] = useTransition()
   const [deleting, startDelete] = useTransition()
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const blankForm = {
     name: '',
@@ -639,35 +655,58 @@ function AssetsTab({
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm((p) => ({ ...p, [k]: e.target.value }))
 
-  function handleAdd() {
+  function handleEdit(asset: Asset) {
+    setEditingId(asset.id)
+    setForm({
+      name: asset.name,
+      type: asset.type,
+      value: asset.value.toString(),
+      currency: asset.currency ?? 'USD',
+      institution: asset.institution ?? '',
+      notes: asset.notes ?? '',
+      member_id: asset.member_id ?? '',
+    })
+  }
+
+  function handleCancel() {
+    setEditingId(null)
+    setForm(blankForm)
+  }
+
+  function handleSave() {
     if (!form.name || !form.value) {
       onToast('Name and value are required', 'error')
       return
     }
-    startAdd(async () => {
+    startSave(async () => {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { onToast('Not authenticated', 'error'); return }
 
-      const { data, error } = await supabase
-        .from('assets')
-        .insert({
-          user_id: user.id,
-          member_id: form.member_id || null,
-          name: form.name,
-          type: form.type,
-          value: parseFloat(form.value),
-          currency: form.currency || 'USD',
-          institution: form.institution || null,
-          notes: form.notes || null,
-        })
-        .select()
-        .single()
+      const payload = {
+        member_id: form.member_id || null,
+        name: form.name,
+        type: form.type,
+        value: parseFloat(form.value),
+        currency: form.currency || 'USD',
+        institution: form.institution || null,
+        notes: form.notes || null,
+      }
 
-      if (error) { onToast(error.message, 'error'); return }
-      setAssets((prev) => [data as Asset, ...prev])
-      setForm(blankForm)
-      onToast('Asset added', 'success')
+      if (editingId) {
+        const { data, error } = await supabase.from('assets').update(payload).eq('id', editingId).select().single()
+        if (error) { onToast(error.message, 'error'); return }
+        setAssets((prev) => prev.map((a) => a.id === editingId ? data as Asset : a))
+        setEditingId(null)
+        setForm(blankForm)
+        onToast('Asset updated', 'success')
+      } else {
+        const { data, error } = await supabase.from('assets').insert({ user_id: user.id, ...payload }).select().single()
+        if (error) { onToast(error.message, 'error'); return }
+        setAssets((prev) => [data as Asset, ...prev])
+        setForm(blankForm)
+        onToast('Asset added', 'success')
+      }
     })
   }
 
@@ -678,6 +717,7 @@ function AssetsTab({
       const { error } = await supabase.from('assets').delete().eq('id', id)
       if (error) { onToast(error.message, 'error'); setDeletingId(null); return }
       setAssets((prev) => prev.filter((a) => a.id !== id))
+      if (editingId === id) { setEditingId(null); setForm(blankForm) }
       setDeletingId(null)
       onToast('Asset deleted', 'success')
     })
@@ -730,10 +770,11 @@ function AssetsTab({
                             <p className="text-xs text-[#64748b]">{asset.institution}</p>
                           )}
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2">
                           <span className="text-sm font-semibold text-[#10b981] tabular-nums">
                             {formatCurrency(asset.value)}
                           </span>
+                          <EditButton onClick={() => handleEdit(asset)} />
                           <DeleteButton
                             onClick={() => handleDelete(asset.id)}
                             loading={deleting && deletingId === asset.id}
@@ -751,7 +792,7 @@ function AssetsTab({
 
       <Card>
         <CardHeader>
-          <CardTitle>Add Asset</CardTitle>
+          <CardTitle>{editingId ? 'Edit Asset' : 'Add Asset'}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -771,9 +812,12 @@ function AssetsTab({
             <Textarea label="Notes" placeholder="Optional notes..." rows={2} value={form.notes} onChange={set('notes')} />
             <MemberAssignSelect members={members} value={form.member_id} onChange={set('member_id')} />
           </div>
-          <div className="mt-4 flex justify-end">
-            <Button onClick={handleAdd} loading={adding}>
-              Add Asset
+          <div className="mt-4 flex justify-end gap-2">
+            {editingId && (
+              <Button onClick={handleCancel} variant="secondary">Cancel</Button>
+            )}
+            <Button onClick={handleSave} loading={saving}>
+              {editingId ? 'Save Changes' : 'Add Asset'}
             </Button>
           </div>
         </CardContent>
@@ -794,9 +838,10 @@ function LiabilitiesTab({
   onToast: (msg: string, type: 'success' | 'error') => void
 }) {
   const [liabilities, setLiabilities] = useState<Liability[]>(initialLiabilities)
-  const [adding, startAdd] = useTransition()
+  const [saving, startSave] = useTransition()
   const [deleting, startDelete] = useTransition()
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const blankForm = {
     name: '',
@@ -814,38 +859,64 @@ function LiabilitiesTab({
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm((p) => ({ ...p, [k]: e.target.value }))
 
-  function handleAdd() {
+  function handleEdit(l: Liability) {
+    setEditingId(l.id)
+    setForm({
+      name: l.name,
+      type: l.type,
+      balance: l.balance.toString(),
+      interest_rate: l.interest_rate?.toString() ?? '',
+      monthly_payment: l.monthly_payment?.toString() ?? '',
+      original_amount: l.original_amount?.toString() ?? '',
+      term_months: l.term_months?.toString() ?? '',
+      institution: l.institution ?? '',
+      notes: l.notes ?? '',
+      member_id: l.member_id ?? '',
+    })
+  }
+
+  function handleCancel() {
+    setEditingId(null)
+    setForm(blankForm)
+  }
+
+  function handleSave() {
     if (!form.name || !form.balance) {
       onToast('Name and balance are required', 'error')
       return
     }
-    startAdd(async () => {
+    startSave(async () => {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { onToast('Not authenticated', 'error'); return }
 
-      const { data, error } = await supabase
-        .from('liabilities')
-        .insert({
-          user_id: user.id,
-          member_id: form.member_id || null,
-          name: form.name,
-          type: form.type,
-          balance: parseFloat(form.balance),
-          interest_rate: form.interest_rate ? parseFloat(form.interest_rate) : 0,
-          monthly_payment: form.monthly_payment ? parseFloat(form.monthly_payment) : 0,
-          original_amount: form.original_amount ? parseFloat(form.original_amount) : null,
-          term_months: form.term_months ? parseInt(form.term_months) : null,
-          institution: form.institution || null,
-          notes: form.notes || null,
-        })
-        .select()
-        .single()
+      const payload = {
+        member_id: form.member_id || null,
+        name: form.name,
+        type: form.type,
+        balance: parseFloat(form.balance),
+        interest_rate: form.interest_rate ? parseFloat(form.interest_rate) : 0,
+        monthly_payment: form.monthly_payment ? parseFloat(form.monthly_payment) : 0,
+        original_amount: form.original_amount ? parseFloat(form.original_amount) : null,
+        term_months: form.term_months ? parseInt(form.term_months) : null,
+        institution: form.institution || null,
+        notes: form.notes || null,
+      }
 
-      if (error) { onToast(error.message, 'error'); return }
-      setLiabilities((prev) => [data as Liability, ...prev])
-      setForm(blankForm)
-      onToast('Liability added', 'success')
+      if (editingId) {
+        const { data, error } = await supabase.from('liabilities').update(payload).eq('id', editingId).select().single()
+        if (error) { onToast(error.message, 'error'); return }
+        setLiabilities((prev) => prev.map((l) => l.id === editingId ? data as Liability : l))
+        setEditingId(null)
+        setForm(blankForm)
+        onToast('Liability updated', 'success')
+      } else {
+        const { data, error } = await supabase.from('liabilities').insert({ user_id: user.id, ...payload }).select().single()
+        if (error) { onToast(error.message, 'error'); return }
+        setLiabilities((prev) => [data as Liability, ...prev])
+        setForm(blankForm)
+        onToast('Liability added', 'success')
+      }
     })
   }
 
@@ -856,6 +927,7 @@ function LiabilitiesTab({
       const { error } = await supabase.from('liabilities').delete().eq('id', id)
       if (error) { onToast(error.message, 'error'); setDeletingId(null); return }
       setLiabilities((prev) => prev.filter((l) => l.id !== id))
+      if (editingId === id) { setEditingId(null); setForm(blankForm) }
       setDeletingId(null)
       onToast('Liability deleted', 'success')
     })
@@ -909,10 +981,11 @@ function LiabilitiesTab({
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold text-[#ef4444] tabular-nums">
                       {formatCurrency(liability.balance)}
                     </span>
+                    <EditButton onClick={() => handleEdit(liability)} />
                     <DeleteButton
                       onClick={() => handleDelete(liability.id)}
                       loading={deleting && deletingId === liability.id}
@@ -927,7 +1000,7 @@ function LiabilitiesTab({
 
       <Card>
         <CardHeader>
-          <CardTitle>Add Liability</CardTitle>
+          <CardTitle>{editingId ? 'Edit Liability' : 'Add Liability'}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -950,9 +1023,12 @@ function LiabilitiesTab({
             <Textarea label="Notes" placeholder="Optional notes..." rows={2} value={form.notes} onChange={set('notes')} />
             <MemberAssignSelect members={members} value={form.member_id} onChange={set('member_id')} />
           </div>
-          <div className="mt-4 flex justify-end">
-            <Button onClick={handleAdd} loading={adding}>
-              Add Liability
+          <div className="mt-4 flex justify-end gap-2">
+            {editingId && (
+              <Button onClick={handleCancel} variant="secondary">Cancel</Button>
+            )}
+            <Button onClick={handleSave} loading={saving}>
+              {editingId ? 'Save Changes' : 'Add Liability'}
             </Button>
           </div>
         </CardContent>
@@ -973,9 +1049,10 @@ function IncomeTab({
   onToast: (msg: string, type: 'success' | 'error') => void
 }) {
   const [income, setIncome] = useState<IncomeSource[]>(initialIncome)
-  const [adding, startAdd] = useTransition()
+  const [saving, startSave] = useTransition()
   const [deleting, startDelete] = useTransition()
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const blankForm = {
     name: '',
@@ -989,34 +1066,56 @@ function IncomeTab({
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm((p) => ({ ...p, [k]: e.target.value }))
 
-  function handleAdd() {
+  function handleEdit(src: IncomeSource) {
+    setEditingId(src.id)
+    setForm({
+      name: src.name,
+      type: src.type,
+      monthly_amount: src.monthly_amount.toString(),
+      is_active: src.is_active,
+      notes: src.notes ?? '',
+      member_id: src.member_id ?? '',
+    })
+  }
+
+  function handleCancel() {
+    setEditingId(null)
+    setForm(blankForm)
+  }
+
+  function handleSave() {
     if (!form.name || !form.monthly_amount) {
       onToast('Name and monthly amount are required', 'error')
       return
     }
-    startAdd(async () => {
+    startSave(async () => {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { onToast('Not authenticated', 'error'); return }
 
-      const { data, error } = await supabase
-        .from('income_sources')
-        .insert({
-          user_id: user.id,
-          member_id: form.member_id || null,
-          name: form.name,
-          type: form.type,
-          monthly_amount: parseFloat(form.monthly_amount),
-          is_active: form.is_active,
-          notes: form.notes || null,
-        })
-        .select()
-        .single()
+      const payload = {
+        member_id: form.member_id || null,
+        name: form.name,
+        type: form.type,
+        monthly_amount: parseFloat(form.monthly_amount),
+        is_active: form.is_active,
+        notes: form.notes || null,
+      }
 
-      if (error) { onToast(error.message, 'error'); return }
-      setIncome((prev) => [data as IncomeSource, ...prev])
-      setForm(blankForm)
-      onToast('Income source added', 'success')
+      if (editingId) {
+        const { data, error } = await supabase.from('income_sources').update(payload).eq('id', editingId).select().single()
+        if (error) { onToast(error.message, 'error'); return }
+        setIncome((prev) => prev.map((i) => i.id === editingId ? data as IncomeSource : i))
+        setEditingId(null)
+        setForm(blankForm)
+        onToast('Income source updated', 'success')
+      } else {
+        const { data, error } = await supabase.from('income_sources').insert({ user_id: user.id, ...payload }).select().single()
+        if (error) { onToast(error.message, 'error'); return }
+        setIncome((prev) => [data as IncomeSource, ...prev])
+        setForm(blankForm)
+        onToast('Income source added', 'success')
+      }
     })
   }
 
@@ -1027,6 +1126,7 @@ function IncomeTab({
       const { error } = await supabase.from('income_sources').delete().eq('id', id)
       if (error) { onToast(error.message, 'error'); setDeletingId(null); return }
       setIncome((prev) => prev.filter((i) => i.id !== id))
+      if (editingId === id) { setEditingId(null); setForm(blankForm) }
       setDeletingId(null)
       onToast('Income source deleted', 'success')
     })
@@ -1079,10 +1179,11 @@ function IncomeTab({
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold text-[#10b981] tabular-nums">
                       {formatCurrency(source.monthly_amount)}/mo
                     </span>
+                    <EditButton onClick={() => handleEdit(source)} />
                     <DeleteButton
                       onClick={() => handleDelete(source.id)}
                       loading={deleting && deletingId === source.id}
@@ -1097,7 +1198,7 @@ function IncomeTab({
 
       <Card>
         <CardHeader>
-          <CardTitle>Add Income Source</CardTitle>
+          <CardTitle>{editingId ? 'Edit Income Source' : 'Add Income Source'}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1127,9 +1228,12 @@ function IncomeTab({
             </div>
             <MemberAssignSelect members={members} value={form.member_id} onChange={set('member_id')} />
           </div>
-          <div className="mt-4 flex justify-end">
-            <Button onClick={handleAdd} loading={adding}>
-              Add Income Source
+          <div className="mt-4 flex justify-end gap-2">
+            {editingId && (
+              <Button onClick={handleCancel} variant="secondary">Cancel</Button>
+            )}
+            <Button onClick={handleSave} loading={saving}>
+              {editingId ? 'Save Changes' : 'Add Income Source'}
             </Button>
           </div>
         </CardContent>
@@ -1150,9 +1254,10 @@ function ExpensesTab({
   onToast: (msg: string, type: 'success' | 'error') => void
 }) {
   const [expenses, setExpenses] = useState<Expense[]>(initialExpenses)
-  const [adding, startAdd] = useTransition()
+  const [saving, startSave] = useTransition()
   const [deleting, startDelete] = useTransition()
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const blankForm = {
     name: '',
@@ -1171,41 +1276,60 @@ function ExpensesTab({
     ? computeMonthlyEquivalent(parseFloat(form.amount), form.frequency)
     : 0
 
-  function handleAdd() {
+  function handleEdit(exp: Expense) {
+    setEditingId(exp.id)
+    setForm({
+      name: exp.name,
+      category: exp.category,
+      amount: exp.amount.toString(),
+      frequency: exp.frequency,
+      is_essential: exp.is_essential,
+      notes: exp.notes ?? '',
+      member_id: exp.member_id ?? '',
+    })
+  }
+
+  function handleCancel() {
+    setEditingId(null)
+    setForm(blankForm)
+  }
+
+  function handleSave() {
     if (!form.name || !form.amount) {
       onToast('Name and amount are required', 'error')
       return
     }
-    startAdd(async () => {
+    startSave(async () => {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { onToast('Not authenticated', 'error'); return }
 
-      const monthly_equivalent = computeMonthlyEquivalent(
-        parseFloat(form.amount),
-        form.frequency,
-      )
+      const monthly_equivalent = computeMonthlyEquivalent(parseFloat(form.amount), form.frequency)
+      const payload = {
+        member_id: form.member_id || null,
+        name: form.name,
+        category: form.category,
+        amount: parseFloat(form.amount),
+        frequency: form.frequency,
+        monthly_equivalent,
+        is_essential: form.is_essential,
+        notes: form.notes || null,
+      }
 
-      const { data, error } = await supabase
-        .from('expenses')
-        .insert({
-          user_id: user.id,
-          member_id: form.member_id || null,
-          name: form.name,
-          category: form.category,
-          amount: parseFloat(form.amount),
-          frequency: form.frequency,
-          monthly_equivalent,
-          is_essential: form.is_essential,
-          notes: form.notes || null,
-        })
-        .select()
-        .single()
-
-      if (error) { onToast(error.message, 'error'); return }
-      setExpenses((prev) => [data as Expense, ...prev])
-      setForm(blankForm)
-      onToast('Expense added', 'success')
+      if (editingId) {
+        const { data, error } = await supabase.from('expenses').update(payload).eq('id', editingId).select().single()
+        if (error) { onToast(error.message, 'error'); return }
+        setExpenses((prev) => prev.map((e) => e.id === editingId ? data as Expense : e))
+        setEditingId(null)
+        setForm(blankForm)
+        onToast('Expense updated', 'success')
+      } else {
+        const { data, error } = await supabase.from('expenses').insert({ user_id: user.id, ...payload }).select().single()
+        if (error) { onToast(error.message, 'error'); return }
+        setExpenses((prev) => [data as Expense, ...prev])
+        setForm(blankForm)
+        onToast('Expense added', 'success')
+      }
     })
   }
 
@@ -1216,6 +1340,7 @@ function ExpensesTab({
       const { error } = await supabase.from('expenses').delete().eq('id', id)
       if (error) { onToast(error.message, 'error'); setDeletingId(null); return }
       setExpenses((prev) => prev.filter((e) => e.id !== id))
+      if (editingId === id) { setEditingId(null); setForm(blankForm) }
       setDeletingId(null)
       onToast('Expense deleted', 'success')
     })
@@ -1277,10 +1402,11 @@ function ExpensesTab({
                             {formatCurrency(expense.amount)} / {expense.frequency}
                           </p>
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2">
                           <span className="text-sm font-semibold text-[#ef4444] tabular-nums">
                             {formatCurrency(expense.monthly_equivalent)}/mo
                           </span>
+                          <EditButton onClick={() => handleEdit(expense)} />
                           <DeleteButton
                             onClick={() => handleDelete(expense.id)}
                             loading={deleting && deletingId === expense.id}
@@ -1298,7 +1424,7 @@ function ExpensesTab({
 
       <Card>
         <CardHeader>
-          <CardTitle>Add Expense</CardTitle>
+          <CardTitle>{editingId ? 'Edit Expense' : 'Add Expense'}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1346,9 +1472,12 @@ function ExpensesTab({
             </div>
             <MemberAssignSelect members={members} value={form.member_id} onChange={set('member_id')} />
           </div>
-          <div className="mt-4 flex justify-end">
-            <Button onClick={handleAdd} loading={adding}>
-              Add Expense
+          <div className="mt-4 flex justify-end gap-2">
+            {editingId && (
+              <Button onClick={handleCancel} variant="secondary">Cancel</Button>
+            )}
+            <Button onClick={handleSave} loading={saving}>
+              {editingId ? 'Save Changes' : 'Add Expense'}
             </Button>
           </div>
         </CardContent>
@@ -1367,9 +1496,10 @@ function InvestmentsTab({
   onToast: (msg: string, type: 'success' | 'error') => void
 }) {
   const [holdings, setHoldings] = useState<InvestmentHolding[]>(initialHoldings)
-  const [adding, startAdd] = useTransition()
+  const [saving, startSave] = useTransition()
   const [deleting, startDelete] = useTransition()
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const blankForm = {
     name: '',
@@ -1386,37 +1516,62 @@ function InvestmentsTab({
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm((p) => ({ ...p, [k]: e.target.value }))
 
-  function handleAdd() {
+  function handleEdit(h: InvestmentHolding) {
+    setEditingId(h.id)
+    setForm({
+      name: h.name,
+      ticker: h.ticker ?? '',
+      type: h.type,
+      account_type: h.account_type,
+      shares: h.shares?.toString() ?? '',
+      current_value: h.current_value.toString(),
+      cost_basis: h.cost_basis?.toString() ?? '',
+      institution: h.institution ?? '',
+      currency: h.currency ?? 'USD',
+    })
+  }
+
+  function handleCancel() {
+    setEditingId(null)
+    setForm(blankForm)
+  }
+
+  function handleSave() {
     if (!form.name || !form.current_value) {
       onToast('Name and current value are required', 'error')
       return
     }
-    startAdd(async () => {
+    startSave(async () => {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { onToast('Not authenticated', 'error'); return }
 
-      const { data, error } = await supabase
-        .from('investment_holdings')
-        .insert({
-          user_id: user.id,
-          name: form.name,
-          ticker: form.ticker || null,
-          type: form.type,
-          account_type: form.account_type,
-          shares: form.shares ? parseFloat(form.shares) : null,
-          current_value: parseFloat(form.current_value),
-          cost_basis: form.cost_basis ? parseFloat(form.cost_basis) : null,
-          institution: form.institution || null,
-          currency: form.currency || 'USD',
-        })
-        .select()
-        .single()
+      const payload = {
+        name: form.name,
+        ticker: form.ticker || null,
+        type: form.type,
+        account_type: form.account_type,
+        shares: form.shares ? parseFloat(form.shares) : null,
+        current_value: parseFloat(form.current_value),
+        cost_basis: form.cost_basis ? parseFloat(form.cost_basis) : null,
+        institution: form.institution || null,
+        currency: form.currency || 'USD',
+      }
 
-      if (error) { onToast(error.message, 'error'); return }
-      setHoldings((prev) => [data as InvestmentHolding, ...prev])
-      setForm(blankForm)
-      onToast('Holding added', 'success')
+      if (editingId) {
+        const { data, error } = await supabase.from('investment_holdings').update(payload).eq('id', editingId).select().single()
+        if (error) { onToast(error.message, 'error'); return }
+        setHoldings((prev) => prev.map((h) => h.id === editingId ? data as InvestmentHolding : h))
+        setEditingId(null)
+        setForm(blankForm)
+        onToast('Holding updated', 'success')
+      } else {
+        const { data, error } = await supabase.from('investment_holdings').insert({ user_id: user.id, ...payload }).select().single()
+        if (error) { onToast(error.message, 'error'); return }
+        setHoldings((prev) => [data as InvestmentHolding, ...prev])
+        setForm(blankForm)
+        onToast('Holding added', 'success')
+      }
     })
   }
 
@@ -1427,6 +1582,7 @@ function InvestmentsTab({
       const { error } = await supabase.from('investment_holdings').delete().eq('id', id)
       if (error) { onToast(error.message, 'error'); setDeletingId(null); return }
       setHoldings((prev) => prev.filter((h) => h.id !== id))
+      if (editingId === id) { setEditingId(null); setForm(blankForm) }
       setDeletingId(null)
       onToast('Holding deleted', 'success')
     })
@@ -1521,10 +1677,11 @@ function InvestmentsTab({
                               )}
                             </div>
                           </div>
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2">
                             <span className="text-sm font-semibold text-[#3b82f6] tabular-nums">
                               {formatCurrency(holding.current_value)}
                             </span>
+                            <EditButton onClick={() => handleEdit(holding)} />
                             <DeleteButton
                               onClick={() => handleDelete(holding.id)}
                               loading={deleting && deletingId === holding.id}
@@ -1543,7 +1700,7 @@ function InvestmentsTab({
 
       <Card>
         <CardHeader>
-          <CardTitle>Add Holding</CardTitle>
+          <CardTitle>{editingId ? 'Edit Holding' : 'Add Holding'}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1573,9 +1730,12 @@ function InvestmentsTab({
             <Input label="Institution" placeholder="Fidelity" value={form.institution} onChange={set('institution')} />
             <Input label="Currency" placeholder="USD" value={form.currency} onChange={set('currency')} />
           </div>
-          <div className="mt-4 flex justify-end">
-            <Button onClick={handleAdd} loading={adding}>
-              Add Holding
+          <div className="mt-4 flex justify-end gap-2">
+            {editingId && (
+              <Button onClick={handleCancel} variant="secondary">Cancel</Button>
+            )}
+            <Button onClick={handleSave} loading={saving}>
+              {editingId ? 'Save Changes' : 'Add Holding'}
             </Button>
           </div>
         </CardContent>
